@@ -1,0 +1,24 @@
+{
+  "name": "performance-tool",
+  "version": "1.0.0",
+  "description": "绩效工具",
+  "scripts": {
+    "clear": "node clear.js",
+    "download-work-record": "node download-work-record.js",
+    "generate-performance": "node generate-performance.js"
+  },
+  "keywords": [
+    "performance-tool"
+  ],
+  "author": "LJW",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "crypto": "^1.0.1",
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.5",
+    "nodemailer": "^6.10.0",
+    "shelljs": "^0.8.5",
+    "xlsx": "^0.18.5"
+  }
+}
