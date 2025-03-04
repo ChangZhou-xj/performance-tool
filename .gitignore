@@ -9,7 +9,7 @@ lerna-debug.log*
 
 # Local files
 node_modules/
-data/work-record.xlsx
+!data/performance-template.xlsx
 dist/*
 !dist/.gitkeep
 *.local
