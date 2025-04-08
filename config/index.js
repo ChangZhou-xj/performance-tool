@@ -8,6 +8,12 @@ const TENCENT_DOCS_ID = process.env.TENCENT_DOCS_ID;
 // tencentDocsCookie
 const TENCENT_DOCS_COOKIE = process.env.TENCENT_DOCS_COOKIE;
 
+// userName
+const USER_NAME = process.env.USER_NAME;
+
+//month
+const MONTH = process.env.MONTH
+
 /**
  * contentType
  * MIME：https://www.iana.org/assignments/media-types/media-types.xhtml
@@ -27,4 +33,6 @@ module.exports = {
   TENCENT_DOCS_ID,
   TENCENT_DOCS_COOKIE,
   CONTENT_TYPE,
+  USER_NAME,
+  MONTH,
 };
