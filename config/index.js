@@ -14,6 +14,12 @@ const USER_NAME = process.env.USER_NAME;
 //month
 const MONTH = process.env.MONTH
 
+//DEPARTMENT
+const DEPARTMENT = process.env.DEPARTMENT
+
+//EXCLUDE_MEMBER
+const EXCLUDE_MEMBER = process.env.EXCLUDE_MEMBER
+
 /**
  * contentType
  * MIME：https://www.iana.org/assignments/media-types/media-types.xhtml
@@ -35,4 +41,6 @@ module.exports = {
   CONTENT_TYPE,
   USER_NAME,
   MONTH,
+  DEPARTMENT,
+  EXCLUDE_MEMBER,
 };

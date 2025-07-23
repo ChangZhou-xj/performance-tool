@@ -11,3 +11,6 @@ $ npm run download-work-record
 
 # 4. 生成个人绩效
 $ npm run generate-performance
+
+# 5. 校验数据
+$ npm run validate-performance

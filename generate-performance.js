@@ -13,7 +13,6 @@ const { isEmpty, getTemplate } = require('./service');
 const path = require('path');
 const excelJS = require('exceljs');
 const Big = require('big.js');
-const { info } = require('console');
 
 /**
  * 需求等级 分值维护
@@ -21,7 +20,9 @@ const { info } = require('console');
  */
 const demandLevelMap = {
   A类: 15,
+  '2A类': 30,
   B类: 9,
+  '2B类': 18,
   C类: 3,
   '2C类': 6,
   D类: 1,
@@ -159,6 +160,19 @@ function isCurrentMonth(dateStr) {
   );
 }
 /**
+ * 计算评审分值
+ */
+function calculateScore(reviewDeductionPoints, value) {
+  switch (value) {
+    case '二次评审通过':
+      return (reviewDeductionPoints += 0.5);
+    case '二次及以上评审通过':
+      return (reviewDeductionPoints += 1);
+    default:
+      return reviewDeductionPoints;
+  }
+}
+/**
  * 处理数据
  * 1、获取当前人的工作记录里面的所有数据
  */
@@ -191,7 +205,11 @@ async function processData() {
 
       // 判断归属Sheet
       const targetSheets = [];
-      if (categoryStr.includes('需求') && currUserStr === USER_NAME)
+      if (
+        categoryStr.includes('需求') &&
+        currUserStr === USER_NAME &&
+        isCurrentMonth(registrationTime)
+      )
         targetSheets.push('需求');
       if (
         categoryStr.includes('缺陷') &&
@@ -238,6 +256,16 @@ async function processData() {
       if (categoryStr === '代码迁移-一体化' && currUserStr === USER_NAME)
         sheetConfig['代码迁移-一体化'].data.push(row);
     });
+    console.info(`需求共${sheetConfig['需求'].data.length}条`);
+    console.info(`缺陷共${sheetConfig['缺陷'].data.length}条`);
+    console.info(`代码提交记录共${sheetConfig['代码提交记录'].data.length}条`);
+    console.info(`代码评审共${sheetConfig['代码评审'].data.length}条`);
+    console.info(
+      `代码迁移-一体化共${sheetConfig['代码迁移-一体化'].data.length}条`,
+    );
+    console.info(
+      `项目打包（只作为打包登记）共${sheetConfig['项目打包（只作为打包登记）'].data.length}条`,
+    );
     return {
       需求: sheetConfig['需求'].data,
       缺陷: sheetConfig['缺陷'].data,
@@ -276,7 +304,7 @@ function calculateDemandLevel(levelStr) {
     .reduce((sum, val) => sum + val, 0); // 3. 求和计算
 }
 /**
- * 处理分支计算
+ * 处理分值计算
  */
 async function processWorkbook(inputPath) {
   // 1. 读取工作簿
@@ -353,16 +381,25 @@ async function processWorkbook(inputPath) {
     }
   }
   // 8.构建ai的加分项  获取页签名字是'代码评审'的页签，找到列名包含'AI使用截图'的截图列，过滤出不为空的数据 并且 登记人是本人的
+  // 9.构建评审扣分，初审意见、终审意见、复核意见  ，二次评审通过扣0.5  二次及以上评审通过扣1
   let aiNumber = 0;
+  let reviewDeductionPoints = 0; //代码评审扣分
   {
     const worksheet = workbook.getWorksheet('代码评审');
     const headerRow = worksheet.getRow(1);
     let aiCol = -1;
     let currUserIndex = -1;
+    let firstTrial = -1; //初审意见
+    let finalOpinion = -1; //终审意见
+    let reviewOpinion = -1; // 复核意见
+
     headerRow.eachCell((cell, colNumber) => {
       const header = cell.text.trim();
       if (header.includes('AI使用截图')) aiCol = colNumber;
       if (header === '登记人') currUserIndex = colNumber;
+      if (header === '初审意见') firstTrial = colNumber;
+      if (header === '终审意见') finalOpinion = colNumber;
+      if (header === '复核意见') reviewOpinion = colNumber;
     });
     worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber === 1) return; // 跳过标题行
@@ -370,6 +407,23 @@ async function processWorkbook(inputPath) {
       const currUserName = row.getCell(currUserIndex);
       if (!isEmpty(targetCell.value) && currUserName.value === USER_NAME) {
         aiNumber += 1;
+      }
+      if (currUserName.value === USER_NAME) {
+        const firstTrialCell = row.getCell(firstTrial);
+        reviewDeductionPoints = calculateScore(
+          reviewDeductionPoints,
+          firstTrialCell.value,
+        );
+        const finalOpinionCell = row.getCell(finalOpinion);
+        reviewDeductionPoints = calculateScore(
+          reviewDeductionPoints,
+          finalOpinionCell.value,
+        );
+        const reviewOpinionCell = row.getCell(reviewOpinion);
+        reviewDeductionPoints = calculateScore(
+          reviewDeductionPoints,
+          reviewOpinionCell.value,
+        );
       }
     });
   }
@@ -393,6 +447,23 @@ async function processWorkbook(inputPath) {
   {
     const worksheet = workbook.getWorksheet('加减分类别');
     const headerRow = worksheet.getRow(1);
+    headerRow.eachCell((cell) => {
+      cell.font = { name: '微软雅黑', bold: true, color: { argb: 'FF000000' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFC000' },
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } },
+      };
+      cell.alignment = cell.alignment || {};
+      cell.alignment.vertical = 'middle';
+      cell.alignment.horizontal = 'center';
+    });
 
     let type = -1;
     let typeValueIndex = -1;
@@ -412,7 +483,18 @@ async function processWorkbook(inputPath) {
     rowValues[typeValueIndex] = aiNumber * 0.5;
     rowValues[leaderIndex] = aiNumber * 0.5;
     rowValues[describeIndex] = 'ai代码优化共' + aiNumber + '次';
-    worksheet.insertRow(2, rowValues, 'o');
+    const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+    // 设置边框和自动换行
+    insertedRow.eachCell((cell) => {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } },
+      };
+      cell.alignment = cell.alignment || {};
+      cell.alignment.wrapText = true;
+    });
 
     const reasonIndex = leadingOutDefectsData[0].findIndex(
       (e) => e === '缺陷描述及原因',
@@ -428,7 +510,18 @@ async function processWorkbook(inputPath) {
       rowValues[leaderIndex] = -3;
       rowValues[describeIndex] = leadingOutDefectsData[i][reasonIndex];
       rowValues[dateIndex] = leadingOutDefectsData[i][commitDateIndex];
-      worksheet.insertRow(2, rowValues, 'o');
+      const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+      // 设置边框和自动换行
+      insertedRow.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        };
+        cell.alignment = cell.alignment || {};
+        cell.alignment.wrapText = true;
+      });
     }
   }
   //找到'代码迁移-一体化'
@@ -464,7 +557,6 @@ async function processWorkbook(inputPath) {
     reviewerData = getCurrMonthData(data, USER_NAME, '缺陷引出时的代码评审人');
     verifierData = getCurrMonthData(data, USER_NAME, '缺陷引出时的代码监督人');
   }
-
   {
     const worksheet = workbook.getWorksheet('加减分类别');
     const headerRow = worksheet.getRow(1);
@@ -499,19 +591,62 @@ async function processWorkbook(inputPath) {
         describeIndex
       ] = `登记人:${reviewerData[i][0]}\n登记时间：${reviewerData[i][1]}\n${reviewerData[i][reasonIndex]}`;
       rowValues[dateIndex] = reviewerData[i][commitDateIndex];
-      worksheet.insertRow(2, rowValues, 'o');
+      const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+      // 设置边框和自动换行
+      insertedRow.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        };
+        cell.alignment = cell.alignment || {};
+        cell.alignment.wrapText = true;
+      });
+      reviewDelNumber += 1;
+    }
+    for (let i = 1; i < verifierData.length; i++) {
+      const rowValues = [];
+      rowValues[type] = '督查引出缺陷';
+      rowValues[typeValueIndex] = -0.5;
+      rowValues[leaderIndex] = -0.5;
+      rowValues[
+        describeIndex
+      ] = `登记人:${verifierData[i][0]}\n登记时间：${verifierData[i][1]}\n${verifierData[i][reasonIndex]}`;
+      rowValues[dateIndex] = verifierData[i][commitDateIndex];
+      const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+      // 设置边框和自动换行
+      insertedRow.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        };
+        cell.alignment = cell.alignment || {};
+        cell.alignment.wrapText = true;
+      });
       reviewDelNumber += 1;
     }
 
-    for (let i = 1; i < verifierData.length; i++) {
+    {
       const rowValues = [];
-      rowValues[type] = '评审引出缺陷';
-      rowValues[typeValueIndex] = -0.5;
-      rowValues[leaderIndex] = -0.5;
-      rowValues[describeIndex] = reviewerData[i][reasonIndex];
-      rowValues[dateIndex] = reviewerData[i][commitDateIndex];
-      worksheet.insertRow(2, rowValues, 'o');
-      reviewDelNumber += 1;
+      rowValues[type] = '评审不通过';
+      rowValues[typeValueIndex] = -reviewDeductionPoints;
+      rowValues[leaderIndex] = -reviewDeductionPoints;
+      rowValues[describeIndex] = `评审不通过共扣${reviewDeductionPoints}分`;
+      const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+      // 设置边框和自动换行
+      insertedRow.eachCell((cell) => {
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } },
+        };
+        cell.alignment = cell.alignment || {};
+        cell.alignment.wrapText = true;
+      });
     }
   }
   //处理【考核表】 将需求总分汇总到【开发需求工作量】里；将缺陷工作量汇总到【缺陷工作量】；将代码提交汇总到【代码提交】；将ai汇总到【加分项】；将代码评审汇总到【代码评审】里 ； 将评审引出缺陷汇总到【减分项】
@@ -564,12 +699,20 @@ async function processWorkbook(inputPath) {
         const targetCell = row.getCell(score);
         targetCell.value = Number(pack * 0.2);
       }
+      if (targetCell.value === '合并代码不通过') {
+        const targetCell = row.getCell(score);
+        targetCell.value = -Number(reviewDeductionPoints);
+      }
     });
     function markFormulasDirty(worksheet) {
       worksheet.eachRow((row) => {
         row.eachCell((cell) => {
           if (cell.formula) {
-            cell.value = { formula: cell.formula };
+            // 触发公式重计算
+            cell.value = {
+              formula: cell.formula,
+              date1904: false, // 使用1900日期系统
+            };
           }
         });
       });
@@ -706,7 +849,6 @@ async function extractData() {
     //     isCurrentMonth(row[colIndex.verifyDate]||'')
     // );
     //条件7：引出人员 + 登记日期
-
     const cond7 =
       String(row[colIndex.defectDetector]).trim() === USER_NAME &&
       isCurrentMonth(row[colIndex.regDate] || '');
@@ -749,6 +891,7 @@ async function extractData() {
     if (hasEmptyField) continue;
     filteredData.push(row);
   }
+  console.info(`当前导出数据符合规范的一共${filteredData.length}条`);
   return filteredData;
 }
 
@@ -769,7 +912,6 @@ async function copyStylesWithData(templatePath, outputPath, data) {
     // 清空旧数据（保留标题行）
     const headerRow = sheet.getRow(1);
     sheet.spliceRows(2, sheet.rowCount);
-
     // 创建列映射
     const templateColumns = headerRow.values.slice(1);
     const columnMap = templateColumns.map((templateCol) =>
@@ -788,36 +930,52 @@ async function copyStylesWithData(templatePath, outputPath, data) {
 
         // 赋值数据
         cell.value = dataIndex !== -1 ? rowData[dataIndex] : null;
-
-        // 复制样式
-        if (headerRow.getCell(colIndex + 1).style) {
-          let newStyle = {
-            ...headerRow.getCell(colIndex + 1).style,
-            font: {
-              bold: false,
-              size: 10,
-              italic: false, //字体倾斜
-              strike: false, //删除线
-            },
-            fill: {
-              ...headerRow.getCell(colIndex + 1).style.fill,
-              fgColor: { argb: 'FFFFFFFF' },
-            },
-            alignment: {
-              ...headerRow.getCell(colIndex + 1).style.alignment,
-              wrapText: true, // 启用自动换行
-            },
-            border: {
-              top: { style: 'thin', color: { argb: 'FF808080' } },
-              left: { style: 'thin', color: { argb: 'FF808080' } },
-              bottom: { style: 'thin', color: { argb: 'FF808080' } },
-              right: { style: 'thin', color: { argb: 'FF808080' } },
-            },
-          };
-          // 深拷贝样式对象
-          cell.style = JSON.parse(JSON.stringify(newStyle));
-        }
+        // 获取模板的“数据区”样式行（第2行）
+        const templateDataRow = sheet.getRow(2);
+        // 写入数据并复制样式
+        dataRows.forEach((rowData, rowIndex) => {
+          const newRow = sheet.getRow(rowIndex + 2);
+          templateColumns.forEach((col, colIndex) => {
+            const cell = newRow.getCell(colIndex + 1);
+            const dataIndex = columnMap[colIndex];
+            // 赋值数据
+            cell.value = dataIndex !== -1 ? rowData[dataIndex] : null;
+            // 复制第2行的样式
+            const templateCell = templateDataRow.getCell(colIndex + 1);
+            if (templateCell) {
+              cell.font = templateCell.font
+                ? JSON.parse(JSON.stringify(templateCell.font))
+                : undefined;
+              cell.alignment = templateCell.alignment
+                ? JSON.parse(JSON.stringify(templateCell.alignment))
+                : undefined;
+              cell.border = templateCell.border
+                ? JSON.parse(JSON.stringify(templateCell.border))
+                : undefined;
+              cell.fill = templateCell.fill
+                ? JSON.parse(JSON.stringify(templateCell.fill))
+                : undefined;
+            }
+          });
+        });
       });
+    });
+    headerRow.eachCell((cell) => {
+      cell.font = { name: '微软雅黑', bold: true, color: { argb: 'FF000000' } };
+      cell.fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFFFC000' }, // 橙黄色
+      };
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } },
+      };
+      cell.alignment = cell.alignment || {};
+      cell.alignment.vertical = 'middle';
+      cell.alignment.horizontal = 'center';
     });
   }
 
@@ -831,7 +989,6 @@ async function copyStylesWithData(templatePath, outputPath, data) {
     '项目打包（只作为打包登记）',
     data['项目打包（只作为打包登记）'],
   );
-
   // 保存文件
   await workbook.xlsx.writeFile(outputPath);
 }
