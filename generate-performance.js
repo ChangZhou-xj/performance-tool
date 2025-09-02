@@ -214,7 +214,8 @@ async function processData() {
       if (
         categoryStr.includes('缺陷') &&
         categoryStr !== '缺陷转需求' &&
-        currUserStr === USER_NAME
+        currUserStr === USER_NAME &&
+        isCurrentMonth(registrationTime)
       )
         targetSheets.push('缺陷');
 
@@ -844,15 +845,16 @@ async function extractData() {
       isCurrentMonth(row[colIndex.aiReviewerDate] || '');
 
     // 条件6: 登记人+ 复核时间 暂时去掉
-    // const cond6 = (
-    //     String(row[colIndex.registrant]).trim() === USER_NAME &&
-    //     isCurrentMonth(row[colIndex.verifyDate]||'')
-    // );
+    const cond6 = (
+        String(row[colIndex.registrant]).trim() === USER_NAME &&
+        isCurrentMonth(row[colIndex.verifyDate]||'')
+    );
     //条件7：引出人员 + 登记日期
     const cond7 =
       String(row[colIndex.defectDetector]).trim() === USER_NAME &&
       isCurrentMonth(row[colIndex.regDate] || '');
-    if (!(cond1 || cond2 || cond3 || cond4 || cond5 || cond7)) {
+
+    if (!(cond1 || cond2 || cond3 || cond4 || cond5 || cond7 || cond6)) {
       continue;
     }
 

@@ -6,7 +6,7 @@ const path = require('path');
 const shell = require('shelljs');
 const axios = require('axios');
 const crypto = require('crypto');
-const { USER_NAME, DEPARTMENT , EXCLUDE_MEMBER } = require('../config');
+const { USER_NAME, DEPARTMENT , EXCLUDE_MEMBER , MONTH } = require('../config');
 
 /**
  * 获取应用根路径
@@ -155,7 +155,12 @@ function performanceUrl() {
   const now = new Date();
   const pad = (n) => n.toString().padStart(2, '0');
   const yyyy = now.getFullYear();
-  const MM = pad(now.getMonth() + 1);
+  const envMonth = process.env.MONTH;
+  // 月份为上一个月 TODO：1月的时候需要取上一年的12月 后面需要处理一下
+  const currentMonth = !isEmpty(envMonth)
+    ? Number(envMonth)
+    : now.getMonth() + 1;
+  const MM = pad(currentMonth);
   return path.join(getBasePath(), 'data', `${USER_NAME}-${yyyy}${MM}绩效考核.xlsx`);
 }
 /**
