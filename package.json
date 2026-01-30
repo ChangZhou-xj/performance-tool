@@ -5,7 +5,7 @@
   "scripts": {
     "clear": "node clear.js",
     "download-work-record": "node download-work-record.js",
-    "generate-performance": "node generate-performance.js",
+    "generate-performance": "node generate-performance-2026.js",
     "validate-performance": "node validate-performance.js"
   },
   "keywords": [
