@@ -14,6 +14,9 @@ const USER_NAME = process.env.USER_NAME;
 //month
 const MONTH = process.env.MONTH
 
+//year
+const YEAR = process.env.YEAR
+
 //DEPARTMENT
 const DEPARTMENT = process.env.DEPARTMENT
 
@@ -41,6 +44,7 @@ module.exports = {
   CONTENT_TYPE,
   USER_NAME,
   MONTH,
+  YEAR,
   DEPARTMENT,
   EXCLUDE_MEMBER,
 };

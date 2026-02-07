@@ -6,7 +6,10 @@
     "clear": "node clear.js",
     "download-work-record": "node download-work-record.js",
     "generate-performance": "node generate-performance-2026.js",
-    "validate-performance": "node validate-performance.js"
+    "validate-performance": "node validate-performance.js",
+    "report:day": "npm run download-work-record && node generate-report.js day",
+    "report:week": "npm run download-work-record && node generate-report.js week",
+    "send-email": "node send-email.js"
   },
   "keywords": [
     "performance-tool"

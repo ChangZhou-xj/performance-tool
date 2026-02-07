@@ -14,3 +14,17 @@ $ npm run generate-performance
 
 # 5. 校验数据
 $ npm run validate-performance
+
+
+
+# 6. 生成日报（基于代码提交记录）
+$ npm run report:day
+
+# 7. 生成周报（基于代码提交记录）
+$ npm run report:week
+
+# 生成2026-02-06的日报
+npm run report:day -- 2026-02-06
+
+# 生成2026-02-06所在周的周报
+npm run report:week -- 2026-02-06

@@ -79,7 +79,7 @@ async function extractData() {
 	const headers = data[0];
 	const colIndex = {
 		registrant: headers.findIndex((h) => h === '登记人'),
-		regDate: headers.findIndex((h) => h === '登记日期'),
+		regDate: headers.findIndex((h) => h === '开发完成日期'),
 		reviewer: headers.findIndex((h) => h === '初审人'),
 		reviewDate: headers.findIndex((h) => h === '初审日期'),
 		finalReviewer: headers.findIndex((h) => h === '终审人'),
@@ -148,7 +148,7 @@ async function processData() {
 	const headers = filteredData[0];
 	const typeIndex = headers.findIndex((e) => e === '类别');
 	const currUserIndex = headers.findIndex((e) => e === '登记人');
-	const registrationTimeIndex = headers.findIndex((e) => e === '登记日期');
+	const registrationTimeIndex = headers.findIndex((e) => e === '开发完成日期');
 	const commitSeq = headers.findIndex((e) => e === '提交编号');
 	const commitContentSeq = headers.findIndex((e) => e === '提交信息');
 	const taskStatusIndex = headers.findIndex((e) => e === '任务状态');
@@ -206,21 +206,32 @@ async function processData() {
 		)
 			sheetConfig['代码提交记录'].data.push(row);
 
-		const hasReviewByUser =
-			(reviewUserCols['初审人'] !== -1 &&
-				reviewUserCols['初审日期'] !== -1 &&
-				String(row[reviewUserCols['初审人']] || '').trim() === USER_NAME &&
-				isCurrentMonth(row[reviewUserCols['初审日期']] || '')) ||
-			(reviewUserCols['终审人'] !== -1 &&
-				reviewUserCols['终审日期'] !== -1 &&
-				String(row[reviewUserCols['终审人']] || '').trim() === USER_NAME &&
-				isCurrentMonth(row[reviewUserCols['终审日期']] || '')) ||
-			(reviewUserCols['复核人'] !== -1 &&
-				reviewUserCols['复核日期'] !== -1 &&
-				String(row[reviewUserCols['复核人']] || '').trim() === USER_NAME &&
-				isCurrentMonth(row[reviewUserCols['复核日期']] || ''));
+		// 代码评审判定规则：
+		// 当登记人为当前用户时，且初审人/初审日期、终审人/终审日期、复核人/复核日期
+		// 这三组字段都存在且非空，则视为一次完整的代码评审记录，记入「代码评审」。
+		const isRegistrantUser = currUserStr === USER_NAME;
+		const allReviewFieldsPresent = [
+			'初审人',
+			'初审日期',
+			'终审人',
+			'终审日期',
+			'复核人',
+			'复核日期',
+		].every((key) => {
+			const idx = reviewUserCols[key];
+			return idx !== -1 && !isEmpty(row[idx]);
+		});
 
-		if (hasReviewByUser) sheetConfig['代码评审'].data.push(row);
+		// 额外规则：如果初审人/终审人/复核人中任意一人是当前用户，且对应的日期在目标月（isCurrentMonth），也计入代码评审
+		const anyReviewByUser = (
+			(reviewUserCols['初审人'] !== -1 && String(row[reviewUserCols['初审人']] || '').trim() === USER_NAME && reviewUserCols['初审日期'] !== -1 && isCurrentMonth(row[reviewUserCols['初审日期']] || '')) ||
+			(reviewUserCols['终审人'] !== -1 && String(row[reviewUserCols['终审人']] || '').trim() === USER_NAME && reviewUserCols['终审日期'] !== -1 && isCurrentMonth(row[reviewUserCols['终审日期']] || '')) ||
+			(reviewUserCols['复核人'] !== -1 && String(row[reviewUserCols['复核人']] || '').trim() === USER_NAME && reviewUserCols['复核日期'] !== -1 && isCurrentMonth(row[reviewUserCols['复核日期']] || ''))
+		);
+
+		if ((isRegistrantUser && allReviewFieldsPresent) || anyReviewByUser) {
+			sheetConfig['代码评审'].data.push(row);
+		}
 
 		if (
 			categoryStr === '项目打包（只作为打包登记）' &&
@@ -427,6 +438,7 @@ async function processWorkbook(inputPath) {
 	}
 
 	let leadingOutDefects = 0;
+	let leadingOutDefectsData = [];
 	let reviewerData = [];
 	let verifierData = [];
 	{
@@ -439,7 +451,7 @@ async function processWorkbook(inputPath) {
 			defval: null,
 			blankrows: false,
 		});
-		const leadingOutDefectsData = getCurrMonthData(
+		leadingOutDefectsData = getCurrMonthData(
 			data,
 			USER_NAME,
 			'缺陷引出人员',
@@ -447,6 +459,180 @@ async function processWorkbook(inputPath) {
 		leadingOutDefects = Math.max(0, leadingOutDefectsData.length - 1);
 		reviewerData = getCurrMonthData(data, USER_NAME, '缺陷引出时的代码评审人');
 		verifierData = getCurrMonthData(data, USER_NAME, '缺陷引出时的代码监督人');
+	}
+
+	// 构建“加减分类别”页签的数据（参考 generate-performance.js 的实现）
+	{
+ 		// 先计算评审扣分（移除 AI 加分相关逻辑）
+ 		let reviewDeductionPoints = 0; // 代码评审扣分
+ 		const reviewWorksheet = workbook.getWorksheet('代码评审');
+		if (reviewWorksheet) {
+			const headerRow = reviewWorksheet.getRow(1);
+			let currUserIndex = -1;
+			let firstTrial = -1; // 初审意见
+			let finalOpinion = -1; // 终审意见
+			let reviewOpinion = -1; // 复核意见
+
+			headerRow.eachCell((cell, colNumber) => {
+				const header = cell.text.trim();
+				if (header.includes('AI使用截图')) aiCol = colNumber;
+				if (header === '登记人') currUserIndex = colNumber;
+				if (header === '初审意见') firstTrial = colNumber;
+				if (header === '终审意见') finalOpinion = colNumber;
+				if (header === '复核意见') reviewOpinion = colNumber;
+			});
+
+			reviewWorksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+				if (rowNumber === 1) return;
+				// 安全读取单元格，避免传入-1导致 exceljs 抛错
+				function safeCellValue(colIndex) {
+					if (!colIndex || colIndex === -1) return null;
+					try {
+						const c = row.getCell(colIndex);
+						return c ? c.value : null;
+					} catch (e) {
+						return null;
+					}
+				}
+
+ 				const currUserName = safeCellValue(currUserIndex);
+				if (currUserName === USER_NAME) {
+					const firstTrialValue = safeCellValue(firstTrial);
+					if (firstTrialValue) {
+						if (firstTrialValue === '二次评审通过') reviewDeductionPoints += 0.5;
+						if (firstTrialValue === '二次及以上评审通过') reviewDeductionPoints += 1;
+					}
+					const finalOpinionValue = safeCellValue(finalOpinion);
+					if (finalOpinionValue) {
+						if (finalOpinionValue === '二次评审通过') reviewDeductionPoints += 0.5;
+						if (finalOpinionValue === '二次及以上评审通过') reviewDeductionPoints += 1;
+					}
+					const reviewOpinionValue = safeCellValue(reviewOpinion);
+					if (reviewOpinionValue) {
+						if (reviewOpinionValue === '二次评审通过') reviewDeductionPoints += 0.5;
+						if (reviewOpinionValue === '二次及以上评审通过') reviewDeductionPoints += 1;
+					}
+				}
+			});
+		}
+
+		// 将 AI 优化和引出缺陷等写入到 '加减分类别' 页签
+		const worksheet = workbook.getWorksheet('加减分类别');
+		if (worksheet) {
+			const headerRow = worksheet.getRow(1);
+			let type = -1;
+			let typeValueIndex = -1;
+			let leaderIndex = -1;
+			let describeIndex = -1;
+			let dateIndex = -1;
+			headerRow.eachCell((cell, colNumber) => {
+				const header = cell.text.trim();
+				if (header === '加减类别') type = colNumber;
+				if (header === '自评分') typeValueIndex = colNumber;
+				if (header === '直接上级评分') leaderIndex = colNumber;
+				if (header === '描述') describeIndex = colNumber;
+				if (header === '时间') dateIndex = colNumber;
+			});
+
+			// 已移除 AI 相关加分行
+
+			// 引出缺陷（来自 leadingOutDefectsData）
+			if (leadingOutDefectsData && leadingOutDefectsData.length > 1) {
+				const reasonIndex = leadingOutDefectsData[0].findIndex(
+					(e) => e === '缺陷描述及原因',
+				);
+				const commitDateIndex = leadingOutDefectsData[0].findIndex(
+					(e) => e === '登记日期' || e === '缺陷引出时间',
+				);
+				for (let i = 1; i < leadingOutDefectsData.length; i++) {
+					const rowValues = [];
+					rowValues[type] = '引出缺陷';
+					rowValues[typeValueIndex] = -10;
+					rowValues[leaderIndex] = -10;
+					rowValues[describeIndex] = leadingOutDefectsData[i][reasonIndex];
+					rowValues[dateIndex] = leadingOutDefectsData[i][commitDateIndex];
+					const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+					insertedRow.eachCell((cell) => {
+						cell.border = {
+							top: { style: 'thin', color: { argb: 'FF000000' } },
+							left: { style: 'thin', color: { argb: 'FF000000' } },
+							bottom: { style: 'thin', color: { argb: 'FF000000' } },
+							right: { style: 'thin', color: { argb: 'FF000000' } },
+						};
+						cell.alignment = cell.alignment || {};
+						cell.alignment.wrapText = true;
+					});
+				}
+			}
+
+			// 评审/督查引出缺陷（来自 reviewerData/verifierData）
+			const reasonIndex = leadingOutDefectsData[0]
+				? leadingOutDefectsData[0].findIndex((e) => e === '缺陷描述及原因')
+				: -1;
+			const commitDateIndex = leadingOutDefectsData[0]
+				? leadingOutDefectsData[0].findIndex((e) => e === '登记日期' || e === '缺陷引出时间')
+				: -1;
+			for (let i = 1; i < reviewerData.length; i++) {
+				const rowValues = [];
+				rowValues[type] = '评审引出缺陷';
+				rowValues[typeValueIndex] = -0.5;
+				rowValues[leaderIndex] = -0.5;
+				rowValues[
+					describeIndex
+				] = `登记人:${reviewerData[i][0]}\n登记时间：${reviewerData[i][1]}\n${reviewerData[i][reasonIndex]}`;
+				rowValues[dateIndex] = reviewerData[i][commitDateIndex];
+				const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+				insertedRow.eachCell((cell) => {
+					cell.border = {
+						top: { style: 'thin', color: { argb: 'FF000000' } },
+						left: { style: 'thin', color: { argb: 'FF000000' } },
+						bottom: { style: 'thin', color: { argb: 'FF000000' } },
+						right: { style: 'thin', color: { argb: 'FF000000' } },
+					};
+					cell.alignment = cell.alignment || {};
+					cell.alignment.wrapText = true;
+				});
+			}
+			for (let i = 1; i < verifierData.length; i++) {
+				const rowValues = [];
+				rowValues[type] = '督查引出缺陷';
+				rowValues[typeValueIndex] = -0.5;
+				rowValues[leaderIndex] = -0.5;
+				rowValues[
+					describeIndex
+				] = `登记人:${verifierData[i][0]}\n登记时间：${verifierData[i][1]}\n${verifierData[i][reasonIndex]}`;
+				rowValues[dateIndex] = verifierData[i][commitDateIndex];
+				const insertedRow = worksheet.insertRow(2, rowValues, 'o');
+				insertedRow.eachCell((cell) => {
+					cell.border = {
+						top: { style: 'thin', color: { argb: 'FF000000' } },
+						left: { style: 'thin', color: { argb: 'FF000000' } },
+						bottom: { style: 'thin', color: { argb: 'FF000000' } },
+						right: { style: 'thin', color: { argb: 'FF000000' } },
+					};
+					cell.alignment = cell.alignment || {};
+					cell.alignment.wrapText = true;
+				});
+			}
+
+			// 插入评审不通过汇总行
+			const rowValues2 = [];
+			rowValues2[type] = '评审不通过';
+			rowValues2[typeValueIndex] = -reviewDeductionPoints;
+			rowValues2[leaderIndex] = -reviewDeductionPoints;
+			rowValues2[describeIndex] = `评审不通过共扣${reviewDeductionPoints}分`;
+			const insertedRow = worksheet.insertRow(2, rowValues2, 'o');
+			insertedRow.eachCell((cell) => {
+				cell.border = {
+					top: { style: 'thin', color: { argb: 'FF000000' } },
+					left: { style: 'thin', color: { argb: 'FF000000' } },
+					bottom: { style: 'thin', color: { argb: 'FF000000' } },
+					right: { style: 'thin', color: { argb: 'FF000000' } },
+				};
+				cell.alignment = cell.alignment || {};
+				cell.alignment.wrapText = true;
+			});
+		}
 	}
 
 	const reviewLeadCount = Math.max(0, reviewerData.length - 1);
