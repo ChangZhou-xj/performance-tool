@@ -39,12 +39,13 @@ const recipientConfig = {
  */
 function getLatestReportFile(userName) {
   const dataDir = path.join(__dirname, 'data');
+  const dateStr = dayjs().format('YYYYMMDD');
 
   // 如果指定了用户名，查找该用户的最新日报
   if (userName) {
     const files = fs.readdirSync(dataDir);
     const userFiles = files
-      .filter(file => file.includes(`--${userName}--`) && file.endsWith('.md'))
+      .filter(file => file.includes(`--${userName}--${dateStr}`) && file.endsWith('.md'))
       .sort()
       .reverse();
 
@@ -102,8 +103,9 @@ async function sendDailyReportEmail() {
       throw new Error('未配置收件人，请设置 EMAIL_TO 环境变量');
     }
 
-    // 获取用户名
+    // 获取用户名和部门
     const userName = process.env.USER_NAME || '';
+    const department = process.env.DEPARTMENT || '前端开发部';
 
     // 获取最新日报文件
     const reportFilePath = getLatestReportFile(userName);
@@ -119,8 +121,8 @@ async function sendDailyReportEmail() {
     const emailService = new EmailService(emailConfig);
 
     // 生成邮件主题
-    const date = dayjs().format('YYYY年M月D日');
-    const subject = `Re：工作${reportType}--前端开发部--${userName}--${dateStr}`
+    const dateStr = dayjs().format('YYYYMMDD');
+    const subject = `Re：工作日报--${department}--${userName}--${dateStr}`;
 
     // 发送邮件
     console.log('正在发送邮件...');
