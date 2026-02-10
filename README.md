@@ -149,6 +149,91 @@ node send-email.js
 - 列表项美化
 - 响应式布局
 
+## Docker 操作青龙面板指南
+
+### 1. 准备环境
+
+- 已安装 Docker（Windows/Mac 推荐使用 Docker Desktop）
+- 服务器需开放青龙面板端口（默认 5700）
+
+### 2. 拉取并启动青龙面板
+
+```bash
+# 拉取镜像
+docker pull whyour/qinglong:latest
+
+# 创建并启动容器（示例映射端口 5700）
+docker run -dit \
+  --name qinglong \
+  -p 5700:5700 \
+  -v /ql/data:/ql/data \
+  --restart unless-stopped \
+  whyour/qinglong:latest
+```
+
+### 3. 初始化并登录面板
+
+1. 浏览器访问：`http://服务器IP:5700`
+2. 按提示完成初始化（设置用户名/密码）
+3. 进入「依赖管理」安装 Node 依赖（如需）
+
+### 4. 拉取本项目到青龙面板
+
+方式一：面板中「订阅管理」
+
+1. 进入「订阅管理」
+2. 添加订阅，填写你的仓库地址
+3. 勾选「自动拉取」或手动执行
+
+方式二：容器内手动拉取
+
+```bash
+# 进入容器
+docker exec -it qinglong bash
+
+# 进入脚本目录
+cd /ql/data/scripts
+
+# 克隆仓库
+git clone <你的仓库地址>
+```
+
+### 5. 配置环境变量
+
+在青龙面板「环境变量」中添加邮件配置（见上文“邮件功能使用说明”）。
+
+### 6. 添加定时任务
+
+在「定时任务」中新增：
+
+| 字段 | 值 |
+|------|-----|
+| **名称** | 生成日报并发送 |
+| **命令** | `npm run download-work-record && node generate-report.js day && node send-email.js` |
+| **定时规则** | `0 18 * * *` |
+
+### 7. 日志与排障
+
+- 「定时任务」中查看执行日志
+- 常见问题优先检查：环境变量、网络、邮箱授权码
+
+### 8. 升级与维护
+
+```bash
+# 停止并删除旧容器
+docker stop qinglong
+docker rm qinglong
+
+# 拉取新镜像并重新启动
+docker pull whyour/qinglong:latest
+docker run -dit \
+  --name qinglong \
+  -p 5700:5700 \
+  -v /ql/data:/ql/data \
+  --restart unless-stopped \
+  whyour/qinglong:latest
+```
+
 ## 工作日智能判断
 
 系统集成了中国节假日API，可自动识别：
@@ -272,9 +357,4 @@ await emailService.sendDailyReport({
 
 可以配置多个任务，针对不同的收件人发送不同的报告内容。
 
-## 技术支持
 
-如遇到问题，请查看：
-1. 青龙面板任务日志
-2. 邮件服务返回的错误信息
-3. 参考完整配置文档：[setup-schedule.md](setup-schedule.md)
