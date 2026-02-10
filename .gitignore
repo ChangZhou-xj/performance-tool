@@ -26,3 +26,4 @@ dist/*
 *.sln
 *.tern-port
 *.sw?
+data/

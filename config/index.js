@@ -23,6 +23,21 @@ const DEPARTMENT = process.env.DEPARTMENT
 //EXCLUDE_MEMBER
 const EXCLUDE_MEMBER = process.env.EXCLUDE_MEMBER
 
+// 邮件配置
+const EMAIL_CONFIG = {
+  host: process.env.EMAIL_HOST || 'smtp.exmail.qq.com',
+  port: process.env.EMAIL_PORT || 465,
+  secure: true,
+  user: process.env.EMAIL_USER,
+  password: process.env.EMAIL_PASSWORD,
+  from: process.env.EMAIL_FROM || process.env.EMAIL_USER,
+};
+
+const EMAIL_RECIPIENT = {
+  to: process.env.EMAIL_TO ? process.env.EMAIL_TO.split(',') : [],
+  cc: process.env.EMAIL_CC ? process.env.EMAIL_CC.split(',') : [],
+};
+
 /**
  * contentType
  * MIME：https://www.iana.org/assignments/media-types/media-types.xhtml
@@ -47,4 +62,6 @@ module.exports = {
   YEAR,
   DEPARTMENT,
   EXCLUDE_MEMBER,
+  EMAIL_CONFIG,
+  EMAIL_RECIPIENT,
 };

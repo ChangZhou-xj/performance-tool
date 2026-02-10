@@ -1,7 +1,7 @@
 'use strict';
 const { getWorkRecordPath } = require('./service/index');
 const xlsx = require('xlsx');
-const { USER_NAME, MONTH, YEAR } = require('./config');
+const { USER_NAME, MONTH, YEAR, DEPARTMENT } = require('./config');
 const { isEmpty } = require('./service');
 const excelJS = require('exceljs');
 const path = require('path');
@@ -79,6 +79,14 @@ function getDateRange(type, targetDate) {
  */
 function formatDateCN(date) {
 	return `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+/**
+ * 数字转中文月份
+ */
+function getChineseMonth(month) {
+	const months = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
+	return months[month];
 }
 
 /**
@@ -195,19 +203,13 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
 			? formatDateCN(startDate)
 			: `${formatDateCN(startDate)} ~ ${formatDateCN(endDate)}`;
 
-	// 构建Markdown内容
-	let markdown = '';
-	markdown += `# ${USER_NAME} - 代码测试${reportType}\n\n`;
-	markdown += `**时间范围:** ${dateRange}\n\n`;
-	markdown += `---\n\n`;
-
 	// 收集所有提交记录
 	const allCommits = [];
 	Object.values(projectMap).forEach((project) => {
 		allCommits.push(...project.commits);
 	});
 
-	// 汇总统计（放在前面）
+	// 汇总统计
 	const totalCommits = Object.values(projectMap).reduce(
 		(sum, p) => sum + p.commits.length,
 		0,
@@ -225,27 +227,62 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
 		0,
 	);
 
-	markdown += `## 总计\n\n`;
-	markdown += `- **总测试次数:** ${totalCommits}\n`;
-	markdown += `- **需求测试:** ${totalDemandTest}\n`;
-	markdown += `- **提单:** ${totalSubmit}\n`;
-	markdown += `- **缺陷测试:** ${totalBugTest}\n\n`;
-	markdown += `---\n\n`;
+	// 按邮件示例格式构建Markdown内容
+	let markdown = '';
 
-	let serialNo = 1;
+	// 一、今日工作内容
+	markdown += `一、今日工作内容：\n`;
+	markdown += `    1、需求开发：\n`;
+	markdown += `      暂无\n`;
+	markdown += `    2、缺陷\n`;
+	markdown += `       2.1（pp缺陷）\n`;
+	markdown += `       2.2（非pp缺陷）\n`;
+	markdown += `          暂无\n`;
 
-	// 直接输出所有记录（按指定格式）
-	allCommits.forEach((commit) => {
-		const productType = commit.productType || '未标注';
-		const category = commit.category || '未分类';
-		const taskContent = commit.taskContent || '无内容';
-		const a8Number = commit.a8Number || '无';
+	// 二、其他（放置测试记录）
+	markdown += `二、其他：\n`;
+	if (allCommits.length > 0) {
+		allCommits.forEach((commit, index) => {
+			const productType = commit.productType || '未标注';
+			const category = commit.category || '未分类';
+			const taskContent = commit.taskContent || '无内容';
+			const a8Number = commit.a8Number || '无';
+			markdown += `    ${index + 1}. 【${productType}】【${category}】${taskContent}【${a8Number}】\n`;
+		});
+	} else {
+		markdown += `    暂无\n`;
+	}
 
-		markdown += `${serialNo}. 【${productType}】【${category}】${taskContent}【${a8Number}】\n`;
-		serialNo++;
-	});
+	// 三、月度任务
+	const monthName = getChineseMonth(startDate.getMonth() + 1);
+	markdown += `三、${monthName}月月度任务\n`;
+	markdown += `    暂无。\n`;
 
-	markdown += `\n`;
+	// 四、风险预警
+	markdown += `四、风险预警：\n`;
+	markdown += `    暂无。\n\n`;
+
+	// 五、Playwright
+	markdown += `五、Playwright：\n`;
+	markdown += `    暂无。\n\n`;
+
+	// 六、今日工作目标是否达成（放置测试记录）
+	markdown += `六、今日工作目标是否达成:\n`;
+	if (allCommits.length > 0) {
+		allCommits.forEach((commit, index) => {
+			const productType = commit.productType || '未标注';
+			const category = commit.category || '未分类';
+			const taskContent = commit.taskContent || '无内容';
+			const a8Number = commit.a8Number || '无';
+			markdown += `    ${index + 1}. 【${productType}】【${category}】${taskContent}【${a8Number}】\n`;
+		});
+	} else {
+		markdown += `    暂无\n`;
+	}
+
+	// 七、明日工作计划
+	markdown += `七、明日工作计划：\n`;
+	markdown += `    1、继续测试\n`;
 
 	// 保存文件
 	const dataDir = path.join(process.cwd(), 'data');
@@ -260,10 +297,18 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
 
 	const fileName = path.join(
 		dataDir,
-		`${USER_NAME}-代码测试${reportType}-${dateStr}.md`,
+		`工作${reportType}--${DEPARTMENT}--${USER_NAME}--${dateStr}.md`,
 	);
 
 	fs.writeFileSync(fileName, markdown, 'utf-8');
+
+	console.log(`✅ ${reportType}生成成功: ${fileName}`);
+	console.log(`📊 统计信息:`);
+	console.log(`   - 总测试次数: ${totalCommits}`);
+	console.log(`   - 需求测试: ${totalDemandTest}`);
+	console.log(`   - 提单: ${totalSubmit}`);
+	console.log(`   - 缺陷测试: ${totalBugTest}`);
+
 	return fileName;
 }
 

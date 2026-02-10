@@ -9,7 +9,8 @@
     "validate-performance": "node validate-performance.js",
     "report:day": "npm run download-work-record && node generate-report.js day",
     "report:week": "npm run download-work-record && node generate-report.js week",
-    "send-email": "node send-email.js"
+    "send-email": "node send-email.js",
+    "test-holiday": "node test-holiday.js"
   },
   "keywords": [
     "performance-tool"
@@ -23,6 +24,8 @@
     "dayjs": "^1.11.13",
     "dotenv": "^16.4.5",
     "exceljs": "^4.4.0",
+    "imap": "^0.8.19",
+    "mailparser": "^3.9.3",
     "nodemailer": "^6.10.0",
     "shelljs": "^0.8.5",
     "xlsx": "^0.18.5"
