@@ -28,7 +28,13 @@ class HolidayService {
       // API文档: http://timor.tech/api/holiday
       const year = dayjs(date).year();
       const response = await axios.get(`http://timor.tech/api/holiday/year/${year}`, {
-        timeout: 5000
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+          'Referer': 'http://timor.tech/'
+        }
       });
 
       if (response.data && response.data.holiday) {
@@ -70,7 +76,13 @@ class HolidayService {
     
     try {
       const response = await axios.get(`http://timor.tech/api/holiday/info/${dateStr}`, {
-        timeout: 5000
+        timeout: 5000,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'application/json, text/plain, */*',
+          'Accept-Language': 'zh-CN,zh;q=0.9',
+          'Referer': 'http://timor.tech/'
+        }
       });
 
       if (response.data && response.data.code === 0) {

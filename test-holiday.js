@@ -38,6 +38,9 @@ async function testHoliday() {
     const info = await holidayService.getDateInfo(date);
     const status = info.isWorkday ? '✅ 工作日' : '❌ 休息日';
     console.log(`${info.date} - ${status} - ${info.type}${info.name ? ' - ' + info.name : ''}`);
+
+    // 添加延迟，避免API限流（429错误）
+    await new Promise(resolve => setTimeout(resolve, 500));
   }
 
   console.log('\n====================================');
