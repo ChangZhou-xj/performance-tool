@@ -329,7 +329,7 @@ async function generateReport(type, targetDate) {
 		}
 
 		const projectMap = groupByProject(data, data[0]);
-		await generateReportMarkdown(type, projectMap, startDate, endDate);
+		return await generateReportMarkdown(type, projectMap, startDate, endDate);
 	} catch (err) {
 		console.error('❌ 生成报告失败:', err);
 		throw err;
@@ -338,21 +338,26 @@ async function generateReport(type, targetDate) {
 
 // 命令行参数解析
 if (require.main === module) {
-	const args = process.argv.slice(2);
-	const type = args[0] || 'week'; // 默认周报
-	const dateArg = args[1]; // 可选：指定日期 格式: YYYY-MM-DD
+	(async () => {
+		const args = process.argv.slice(2);
+		const type = args[0] || 'week'; // 默认周报
+		const dateArg = args[1]; // 可选：指定日期 格式: YYYY-MM-DD
 
-	let targetDate = null;
-	if (dateArg) {
-		const [year, month, day] = dateArg.split('-').map(Number);
-		targetDate = new Date(year, month - 1, day);
-		if (isNaN(targetDate.getTime())) {
-			console.error('❌ 日期格式错误，请使用 YYYY-MM-DD 格式');
-			process.exit(1);
+		let targetDate = null;
+		if (dateArg) {
+			const [year, month, day] = dateArg.split('-').map(Number);
+			targetDate = new Date(year, month - 1, day);
+			if (isNaN(targetDate.getTime())) {
+				console.error('❌ 日期格式错误，请使用 YYYY-MM-DD 格式');
+				process.exit(1);
+			}
 		}
-	}
 
-	generateReport(type, targetDate);
+		await generateReport(type, targetDate);
+	})().catch((err) => {
+		console.error('❌ 执行失败:', err);
+		process.exit(1);
+	});
 }
 
 module.exports = { generateReport };

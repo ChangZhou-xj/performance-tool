@@ -45,7 +45,7 @@ function getLatestReportFile(userName) {
   if (userName) {
     const files = fs.readdirSync(dataDir);
     const userFiles = files
-      .filter(file => file.includes(`--${userName}--${dateStr}`) && file.endsWith('.md'))
+      .filter(file => file.includes('工作日报') && file.includes(`--${userName}--${dateStr}`) && file.endsWith('.md'))
       .sort()
       .reverse();
 
@@ -132,6 +132,11 @@ async function sendDailyReportEmail() {
       cc: recipientConfig.cc.length > 0 ? recipientConfig.cc : undefined,
       subject: subject,
     });
+
+    if (fs.existsSync(reportFilePath)) {
+      fs.unlinkSync(reportFilePath);
+      console.log(`🧹 已删除今日日报文件: ${reportFilePath}`);
+    }
 
     console.log('\n====================================');
     console.log('✅ 邮件发送成功！');
