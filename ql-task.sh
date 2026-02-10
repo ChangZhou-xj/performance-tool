@@ -22,6 +22,5 @@ notify() {
 
 trap notify EXIT
 
-npm run download-work-record
 npm run report:day
 npm run send-email
