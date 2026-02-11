@@ -262,9 +262,6 @@ class EmailService {
       <body>
         <div class="email-container">
           ${html}
-          <div class="footer">
-            <p>📧 此邮件由系统自动发送，请勿直接回复</p>
-          </div>
         </div>
       </body>
       </html>
