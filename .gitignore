@@ -27,3 +27,4 @@ dist/*
 *.tern-port
 *.sw?
 data/
+*.xlsx

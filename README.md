@@ -1,36 +1,233 @@
-# Setup
+# 绩效工具使用手册
+
+## 环境要求
+
+- **Node.js**: >= 16.0.0（推荐 18.x 或更高版本）
+- **操作系统**: Windows / macOS / Linux
+- **网络**: 需要能访问腾讯文档和邮件服务器
+
+## 快速开始
+
+### 1. 安装依赖
 
 ``` bash
-# 1. 安装依赖
-$ npm install --registry=https://registry.npmmirror.com
+npm install --registry=https://registry.npmmirror.com
+```
 
-# 2. 查看 docId 和 cookie 图片教程修改 .env 文件
+### 2. 配置环境变量
 
-# 3. 下载工作记录excel数据
-$ npm run download-work-record
+复制 `.env.example` 为 `.env` 并根据实际情况修改配置：
 
-# 4. 生成个人绩效
-$ npm run generate-performance
+```bash
+cp .env.example .env
+```
 
-# 5. 校验数据
-$ npm run validate-performance
+查看 [docId.png](docId.png) 和 [cookie.png](cookie.png) 图片教程，配置腾讯文档相关信息。
 
+**必填配置项：**
+- `TENCENT_DOCS_ID`: 腾讯文档ID
+- `TENCENT_DOCS_COOKIE`: 腾讯文档Cookie
+- `USER_NAME`: 用户姓名
+- `DEPARTMENT`: 部门名称
 
+**邮件功能必填项：**
+- `EMAIL_USER`: 发件人邮箱
+- `EMAIL_PASSWORD`: 邮箱授权码
+- `EMAIL_TO`: 收件人邮箱
 
-# 6. 生成日报（基于代码提交记录）
-$ npm run report:day
+详细配置说明请参考 [环境变量配置](#环境变量配置完整说明) 章节。
 
-# 7. 生成周报（基于代码提交记录）
-$ npm run report:week
+### 3. 准备数据文件
 
-# 生成2026-02-06的日报
-$ npm run report:day -- 2026-02-06
+确保 `data` 目录下有以下文件：
+- `work-record.xlsx`: 工作记录文件（通过命令自动下载）
+- `performance-template.xlsx`: 绩效模板文件（需手动准备）
 
-# 生成2026-02-06所在周的周报
-$ npm run report:week -- 2026-02-06
+### 4. 下载工作记录excel数据
 
-# 8. 发送邮件（需先配置好环境变量）
-$ npm run send-email
+```bash
+npm run download-work-record
+```
+
+### 5. 生成个人绩效
+
+```bash
+npm run generate-performance
+```
+
+### 6. 校验数据
+
+```bash
+npm run validate-performance
+```
+
+### 7. 生成日报（基于工作记录）
+
+```bash
+# 生成今天的日报
+npm run report:day
+
+# 生成指定日期的日报（格式：YYYY-MM-DD）
+npm run report:day -- 2026-02-06
+```
+
+### 8. 生成周报（基于工作记录）
+
+```bash
+# 生成本周的周报
+npm run report:week
+
+# 生成指定日期所在周的周报
+npm run report:week -- 2026-02-06
+```
+
+### 9. 发送邮件（需先配置好环境变量）
+
+```bash
+npm run send-email
+```
+
+---
+
+## npm scripts 详细说明
+
+| 命令 | 说明 | 参数 |
+|------|------|------|
+| `npm run clear` | 清理 dist 目录 | 无 |
+| `npm run download-work-record` | 从腾讯文档下载工作记录到 `data/work-record.xlsx` | 无 |
+| `npm run generate-performance` | 生成个人绩效考核表到 `data/` 目录 | 需配置 `MONTH`、`YEAR` |
+| `npm run validate-performance` | 校验绩效数据并生成校验报告 | 无 |
+| `npm run report:day` | 生成日报（Markdown格式） | 可选：日期 `YYYY-MM-DD` |
+| `npm run report:week` | 生成周报（Markdown格式） | 可选：日期 `YYYY-MM-DD` |
+| `npm run send-email` | 发送日报邮件 | 需先配置邮件相关环境变量 |
+| `npm run test-holiday` | 测试节假日API | 无 |
+
+---
+
+## 数据文件说明
+
+### 输入文件
+
+#### 1. work-record.xlsx
+- **位置**: `data/work-record.xlsx`
+- **来源**: 通过 `npm run download-work-record` 从腾讯文档自动下载
+- **用途**: 工作记录数据，用于生成绩效、日报、周报
+- **必需字段**: 
+  - 工作表名: `工作记录`
+  - 列名: `登记人`、`登记日期`、`开发完成日期`、`类别`、`任务内容`、`产品标识`、`项目名称`等
+
+#### 2. performance-template.xlsx
+- **位置**: `data/performance-template.xlsx`
+- **来源**: 需手动准备的绩效模板文件
+- **用途**: 作为生成个人绩效考核表的模板
+- **说明**: 根据单位绩效考核格式准备
+
+### 输出文件
+
+#### 1. 绩效考核表
+- **命名规则**: `{USER_NAME}-{YYYY}{MM}绩效考核.xlsx`
+- **示例**: `张三-202601绩效考核.xlsx`
+- **位置**: `data/` 目录
+
+#### 2. 数据校验报告
+- **命名规则**: `数据校验_{DEPARTMENT}_{YYYYMMDDHHmmss}.xlsx`
+- **示例**: `数据校验_前端开发部_20260211153045.xlsx`
+- **位置**: `data/` 目录
+
+#### 3. 日报/周报文件
+- **命名规则**: `工作日报--{USER_NAME}--{YYYYMMDD}.md`（日报）
+- **示例**: `工作日报--张三--20260211.md`
+- **位置**: `data/` 目录
+- **说明**: 发送邮件后会自动删除
+
+---
+
+## 环境变量配置完整说明
+
+所有环境变量配置在项目根目录的 `.env` 文件中，可参考 `.env.example` 模板。
+
+### 腾讯文档配置
+
+| 变量名 | 必填 | 说明 | 示例 |
+|--------|------|------|------|
+| `TENCENT_DOCS_ID` | ✅ | 腾讯在线文档ID | `300000000$AxnretFMZGkj` |
+| `TENCENT_DOCS_COOKIE` | ✅ | 腾讯文档Cookie | 见 cookie.png 获取方式 |
+
+### 用户信息配置
+
+| 变量名 | 必填 | 说明 | 示例 |
+|--------|------|------|------|
+| `USER_NAME` | ✅ | 用户姓名（用于筛选工作记录） | `张三` |
+| `DEPARTMENT` | ✅ | 部门名称 | `前端开发部` |
+
+### 绩效配置
+
+| 变量名 | 必填 | 说明 | 默认值 |
+|--------|------|------|--------|
+| `YEAR` | ❌ | 绩效年份 | 当前年份 |
+| `MONTH` | ❌ | 绩效月份 | 当前月份 |
+| `EXCLUDE_MEMBER` | ❌ | 排除成员（逗号分隔） | 无 |
+
+### 邮件配置
+
+| 变量名 | 必填 | 说明 | 默认值 |
+|--------|------|------|--------|
+| `EMAIL_HOST` | ❌ | SMTP服务器 | `smtp.exmail.qq.com` |
+| `EMAIL_PORT` | ❌ | SMTP端口 | `465` |
+| `EMAIL_USER` | ✅ | 发件人邮箱 | - |
+| `EMAIL_PASSWORD` | ✅ | 邮箱授权码 | - |
+| `EMAIL_FROM` | ❌ | 发件人显示名称 | 使用 `EMAIL_USER` |
+| `EMAIL_TO` | ✅ | 收件人（逗号分隔） | - |
+| `EMAIL_CC` | ❌ | 抄送人（逗号分隔） | - |
+| `EMAIL_IMAP_HOST` | ❌ | IMAP服务器 | `imap.exmail.qq.com` |
+| `EMAIL_IMAP_PORT` | ❌ | IMAP端口 | `993` |
+| `EMAIL_SENT_FOLDER` | ❌ | 已发送文件夹名称 | `Sent Messages` |
+| `EMAIL_SAVE_TO_SENT` | ❌ | 是否保存到已发送 | `true` |
+| `EMAIL_CHECK_WORKDAY` | ❌ | 是否检查工作日 | `true` |
+
+### Server酱通知配置（可选）
+
+| 变量名 | 必填 | 说明 | 获取地址 |
+|--------|------|------|----------|
+| `SERVERCHAN_KEY` | ❌ | Server酱SendKey | https://sct.ftqq.com/ |
+
+---
+
+## Server酱通知配置说明
+
+Server酱用于青龙面板任务执行结果通知（微信推送）。
+
+### 1. 获取SendKey
+
+1. 访问 [Server酱官网](https://sct.ftqq.com/)
+2. 使用微信登录
+3. 复制你的 SendKey
+
+### 2. 配置环境变量
+
+在 `.env` 文件中添加：
+
+```bash
+SERVERCHAN_KEY=your_sendkey_here
+```
+
+### 3. 使用方式
+
+Server酱会在以下场景自动推送通知：
+- 青龙面板任务执行成功/失败（通过 `ql-task.sh` 脚本）
+- 推送内容包括：任务状态、执行时间、日志摘要
+
+**手动调用：**
+```bash
+node send-serverchan.js "成功" "./data/ql-task-20260211.log"
+```
+
+参数说明：
+- 第一个参数：任务状态（成功/失败）
+- 第二个参数：日志文件路径（可选）
+
+---
+
 # 邮件功能使用说明（青龙面板）
 
 ## 快速开始
