@@ -445,9 +445,9 @@ docker run -dit \
 
 ### 节假日数据源
 
-- 使用免费API：http://timor.tech/api/holiday
+- 使用免费API：`https://timor.tech/api/holiday`（失败时自动回退）
 - 包含完整的中国节假日和调休数据
-- API调用失败时，自动降级为周一至周五判断
+- API调用失败时，会先尝试年度接口再降级为周一至周五判断
 
 ### 禁用工作日检查
 

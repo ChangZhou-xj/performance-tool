@@ -8,6 +8,55 @@ const dayjs = require('dayjs');
 class HolidayService {
   constructor() {
     this.cache = new Map();
+    this.dateInfoCache = new Map();
+    this.apiTimeout = 8000;
+    this.maxRetries = 2;
+  }
+
+  /**
+   * 带重试的HTTP请求（支持 https/http 回退）
+   * @param {string[]} urls - 可回退URL列表
+   * @returns {Promise<Object>} 响应data
+   */
+  async requestWithRetry(urls) {
+    let lastError = null;
+
+    for (const url of urls) {
+      for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+        try {
+          const response = await axios.get(url, {
+            timeout: this.apiTimeout,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'zh-CN,zh;q=0.9',
+              'Referer': 'https://timor.tech/'
+            }
+          });
+          return response.data;
+        } catch (error) {
+          lastError = error;
+          if (attempt < this.maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+          }
+        }
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * 构建错误摘要
+   * @param {any} error - 错误对象
+   * @returns {string}
+   */
+  getErrorSummary(error) {
+    if (!error) return '未知错误';
+    const status = error.response?.status ? `HTTP ${error.response.status}` : '';
+    const code = error.code || '';
+    const message = error.message || String(error);
+    return [status, code, message].filter(Boolean).join(' | ');
   }
 
   /**
@@ -17,30 +66,23 @@ class HolidayService {
    */
   async isWorkday(date) {
     const dateStr = dayjs(date).format('YYYY-MM-DD');
-    
+
     // 检查缓存
     if (this.cache.has(dateStr)) {
       return this.cache.get(dateStr);
     }
 
     try {
-      // 使用免费节假日API
-      // API文档: http://timor.tech/api/holiday
       const year = dayjs(date).year();
-      const response = await axios.get(`http://timor.tech/api/holiday/year/${year}`, {
-        timeout: 5000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Referer': 'http://timor.tech/'
-        }
-      });
+      const data = await this.requestWithRetry([
+        `https://timor.tech/api/holiday/year/${year}`,
+        `http://timor.tech/api/holiday/year/${year}`
+      ]);
 
-      if (response.data && response.data.holiday) {
-        const holidays = response.data.holiday;
+      if (data && data.holiday) {
+        const holidays = data.holiday;
         const dateInfo = holidays[dateStr];
-        
+
         if (dateInfo) {
           // wage=1表示工作日, wage=2或3表示休息日
           const isWork = dateInfo.wage === 1;
@@ -54,10 +96,10 @@ class HolidayService {
       const isWork = dayOfWeek >= 1 && dayOfWeek <= 5;
       this.cache.set(dateStr, isWork);
       return isWork;
-      
+
     } catch (error) {
-      console.warn('节假日API调用失败，使用降级方案:', error.message);
-      
+      console.warn('节假日API调用失败，使用降级方案:', this.getErrorSummary(error));
+
       // 降级方案：周一到周五算工作日
       const dayOfWeek = dayjs(date).day();
       const isWork = dayOfWeek >= 1 && dayOfWeek <= 5;
@@ -73,21 +115,20 @@ class HolidayService {
    */
   async getDateInfo(date) {
     const dateStr = dayjs(date).format('YYYY-MM-DD');
-    
-    try {
-      const response = await axios.get(`http://timor.tech/api/holiday/info/${dateStr}`, {
-        timeout: 5000,
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-          'Accept': 'application/json, text/plain, */*',
-          'Accept-Language': 'zh-CN,zh;q=0.9',
-          'Referer': 'http://timor.tech/'
-        }
-      });
 
-      if (response.data && response.data.code === 0) {
-        const info = response.data.type;
-        return {
+    if (this.dateInfoCache.has(dateStr)) {
+      return this.dateInfoCache.get(dateStr);
+    }
+
+    try {
+      const data = await this.requestWithRetry([
+        `https://timor.tech/api/holiday/info/${dateStr}`,
+        `http://timor.tech/api/holiday/info/${dateStr}`
+      ]);
+
+      if (data && data.code === 0) {
+        const info = data.type;
+        const result = {
           date: dateStr,
           isWorkday: info.type === 0 || info.type === 3, // 0=工作日, 3=调休
           type: this.getTypeText(info.type),
@@ -95,14 +136,35 @@ class HolidayService {
           wage: info.wage,
           description: this.getDescription(info)
         };
+        this.dateInfoCache.set(dateStr, result);
+        this.cache.set(dateStr, result.isWorkday);
+        return result;
       }
     } catch (error) {
-      console.warn('获取日期信息失败:', error.message);
+      console.warn('获取日期信息失败:', this.getErrorSummary(error));
+    }
+
+    // 二级降级：使用年度接口判断，优先于简单周末判断
+    try {
+      const isWorkday = await this.isWorkday(date);
+      const dayOfWeek = dayjs(date).day();
+      const result = {
+        date: dateStr,
+        isWorkday,
+        type: isWorkday ? '工作日(降级)' : this.getDayOfWeekText(dayOfWeek),
+        name: '',
+        wage: isWorkday ? 1 : 2,
+        description: '使用年度接口降级判断'
+      };
+      this.dateInfoCache.set(dateStr, result);
+      return result;
+    } catch (error) {
+      console.warn('年度节假日接口也失败，继续使用周规则:', this.getErrorSummary(error));
     }
 
     // 降级方案
     const dayOfWeek = dayjs(date).day();
-    return {
+    const result = {
       date: dateStr,
       isWorkday: dayOfWeek >= 1 && dayOfWeek <= 5,
       type: this.getDayOfWeekText(dayOfWeek),
@@ -110,6 +172,9 @@ class HolidayService {
       wage: dayOfWeek >= 1 && dayOfWeek <= 5 ? 1 : 2,
       description: '降级方案判断'
     };
+    this.dateInfoCache.set(dateStr, result);
+    this.cache.set(dateStr, result.isWorkday);
+    return result;
   }
 
   /**
@@ -160,6 +225,7 @@ class HolidayService {
    */
   clearCache() {
     this.cache.clear();
+    this.dateInfoCache.clear();
   }
 }
 
