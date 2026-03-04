@@ -112,7 +112,7 @@ npm run send-email
 - **位置**: `data/work-record.xlsx`
 - **来源**: 通过 `npm run download-work-record` 从腾讯文档自动下载
 - **用途**: 工作记录数据，用于生成绩效、日报、周报
-- **必需字段**: 
+- **必需字段**:
   - 工作表名: `工作记录`
   - 列名: `登记人`、`登记日期`、`开发完成日期`、`类别`、`任务内容`、`产品标识`、`项目名称`等
 
@@ -398,6 +398,12 @@ git clone <你的仓库地址>
 ### 5. 配置环境变量
 
 在青龙面板「环境变量」中添加邮件配置（见上文“邮件功能使用说明”）。
+
+
+```bash
+# 密码重置
+Invoke-RestMethod -Uri "http://IP:5700/open/user/init" -Method Put -ContentType "application/json" -Body '{"username": "admin", "password": "XXXXXX"}'
+```
 
 ### 6. 添加定时任务
 
