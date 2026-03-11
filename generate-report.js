@@ -6,6 +6,21 @@ const { isEmpty } = require('./service');
 const excelJS = require('exceljs');
 const path = require('path');
 const fs = require('fs');
+const Big = require('big.js');
+
+// 测试等级分值映射表
+const testLevelMap = {
+	A类: 15,
+	'2A类': 30,
+	B类: 9,
+	'2B类': 18,
+	C类: 3,
+	'2C类': 6,
+	D类: 1,
+	'2D类': 2,
+	E类: 0.2,
+	'2E类': 0.4,
+};
 
 /**
  * 标准化字符串
@@ -15,6 +30,43 @@ function normalizeString(str) {
 		.trim()
 		.toLowerCase()
 		.replace(/[^\w\u4e00-\u9fa5]/g, '');
+}
+
+/**
+ * 计算测试等级分值（使用Big.js避免精度问题）
+ */
+function calculateTestLevel(levelStr) {
+	if (!levelStr || typeof levelStr !== 'string') return 0;
+	const scores = levelStr
+		.split(',')
+		.map((item) => {
+			const trimmed = item.trim();
+			// 先尝试直接匹配
+			if (testLevelMap[trimmed]) {
+				return testLevelMap[trimmed];
+			}
+			// 如果不匹配，尝试添加"类"后缀
+			const withSuffix = trimmed.includes('类') ? trimmed : trimmed + '类';
+			if (testLevelMap[withSuffix]) {
+				return testLevelMap[withSuffix];
+			}
+			// 兼容处理：提取数字+字母组合
+			const cleaned = trimmed.replace(/[^0-9A-E]/gi, '');
+			if (cleaned) {
+				const withClass = cleaned + '类';
+				return testLevelMap[withClass] || 0;
+			}
+			return 0;
+		});
+
+	// 使用Big.js进行精确累加
+	let total = new Big(0);
+	for (const score of scores) {
+		if (score > 0) {
+			total = total.plus(new Big(score));
+		}
+	}
+	return parseFloat(total.toString());
 }
 
 /**
@@ -67,8 +119,19 @@ function getDateRange(type, targetDate) {
 			59,
 			59,
 		);
+	} else if (type === 'month') {
+		// 月报：整个月
+		startDate = new Date(date.getFullYear(), date.getMonth(), 1);
+		endDate = new Date(
+			date.getFullYear(),
+			date.getMonth() + 1,
+			0,
+			23,
+			59,
+			59,
+		);
 	} else {
-		throw new Error('类型错误，仅支持 day 或 week');
+		throw new Error('类型错误，仅支持 day, week 或 month');
 	}
 
 	return { startDate, endDate };
@@ -112,6 +175,7 @@ async function extractCommitData(type, targetDate) {
 		projectName: headers.findIndex((h) => h === '项目名称'),
 		productType: headers.findIndex((h) => h === '产品类型'),
 		a8Number: headers.findIndex((h) => h === 'A8单号、任务/问题列表编号'),
+		testLevel: headers.findIndex((h) => h === '测试等级'),
 	};
 
 	const { startDate, endDate } = getDateRange(type, targetDate);
@@ -147,7 +211,7 @@ function groupByProject(data, headers) {
 		projectName: headers.findIndex((h) => h === '项目名称'),
 		productType: headers.findIndex((h) => h === '产品类型'),
 		a8Number: headers.findIndex((h) => h === 'A8单号、任务/问题列表编号'),
-		a8Number: headers.findIndex((h) => h === 'A8单号、任务/问题列表编号'),
+		testLevel: headers.findIndex((h) => h === '测试等级'),
 	};
 
 	const projectMap = {};
@@ -161,6 +225,7 @@ function groupByProject(data, headers) {
 		const productType = String(row[colIndex.productType] || '').trim();
 		const regDate = String(row[colIndex.regDate] || '').trim();
 		const a8Number = String(row[colIndex.a8Number] || '').trim();
+		const testLevel = String(row[colIndex.testLevel] || '').trim();
 
 		if (!projectMap[projectName]) {
 			projectMap[projectName] = {
@@ -168,8 +233,12 @@ function groupByProject(data, headers) {
 				demandTestCount: 0,
 				submitCount: 0,
 				bugTestCount: 0,
+				performanceScore: 0, // 绩效分数
 			};
 		}
+
+		// 计算测试等级分数
+		const levelScore = calculateTestLevel(testLevel);
 
 		projectMap[projectName].commits.push({
 			date: regDate,
@@ -178,7 +247,15 @@ function groupByProject(data, headers) {
 			productId,
 			productType,
 			a8Number,
+			testLevel,
+			levelScore,
 		});
+
+		// 累加绩效分数（使用Big.js避免精度问题）
+		const currentScore = new Big(projectMap[projectName].performanceScore || 0);
+		projectMap[projectName].performanceScore = parseFloat(
+			currentScore.plus(new Big(levelScore)).toString()
+		);
 
 		// 统计类别
 		if (category.includes('提单')) {
@@ -224,6 +301,10 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
 	);
 	const totalBugTest = Object.values(projectMap).reduce(
 		(sum, p) => sum + p.bugTestCount,
+		0,
+	);
+	const totalPerformanceScore = Object.values(projectMap).reduce(
+		(sum, p) => sum + p.performanceScore,
 		0,
 	);
 
@@ -308,6 +389,7 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
 	console.log(`   - 需求测试: ${totalDemandTest}`);
 	console.log(`   - 提单: ${totalSubmit}`);
 	console.log(`   - 缺陷测试: ${totalBugTest}`);
+	console.log(`   - 绩效分数: ${totalPerformanceScore.toFixed(2)}`);
 
 	return fileName;
 }
@@ -317,8 +399,8 @@ async function generateReportMarkdown(type, projectMap, startDate, endDate) {
  */
 async function generateReport(type, targetDate) {
 	try {
-		if (!['day', 'week'].includes(type)) {
-			throw new Error('类型错误，请使用 day 或 week');
+		if (!['day', 'week', 'month'].includes(type)) {
+			throw new Error('类型错误，请使用 day, week 或 month');
 		}
 
 		const { data, startDate, endDate } = await extractCommitData(type, targetDate);
@@ -332,6 +414,133 @@ async function generateReport(type, targetDate) {
 		return await generateReportMarkdown(type, projectMap, startDate, endDate);
 	} catch (err) {
 		console.error('❌ 生成报告失败:', err);
+		throw err;
+	}
+}
+
+/**
+ * 生成绩效统计报告
+ */
+async function generatePerformanceStats(type, targetDate) {
+	try {
+		if (!['day', 'week', 'month'].includes(type)) {
+			throw new Error('类型错误，请使用 day, week 或 month');
+		}
+
+		const { data, startDate, endDate } = await extractCommitData(type, targetDate);
+
+		if (data.length <= 1) {
+			console.warn('⚠️  没有找到符合条件的测试记录');
+			return null;
+		}
+
+		const projectMap = groupByProject(data, data[0]);
+
+		// 统计各等级的数量和分数
+		const levelStats = {
+			'A类': { count: 0, score: 0 },
+			'2A类': { count: 0, score: 0 },
+			'B类': { count: 0, score: 0 },
+			'2B类': { count: 0, score: 0 },
+			'C类': { count: 0, score: 0 },
+			'2C类': { count: 0, score: 0 },
+			'D类': { count: 0, score: 0 },
+			'2D类': { count: 0, score: 0 },
+			'E类': { count: 0, score: 0 },
+			'2E类': { count: 0, score: 0 },
+		};
+
+		// 收集所有提交记录
+		const allCommits = [];
+		Object.values(projectMap).forEach((project) => {
+			allCommits.push(...project.commits);
+		});
+
+		// 统计各等级
+		console.log('\n正在分析测试等级数据...');
+		let hasTestLevelData = false;
+		allCommits.forEach((commit, index) => {
+			if (commit.testLevel) {
+				hasTestLevelData = true;
+				// 调试输出前5条记录的测试等级
+				if (index < 5) {
+					console.log(`记录${index + 1} - 测试等级原始值: "${commit.testLevel}"`);
+				}
+				commit.testLevel.split(',').forEach((level) => {
+					const trimmed = level.trim();
+					// 兼容处理：提取数字+字母组合，然后加"类"
+					const cleaned = trimmed.replace(/[^0-9A-E]/gi, '');
+					if (cleaned) {
+						const levelKey = cleaned + '类';
+						if (levelStats[levelKey]) {
+							levelStats[levelKey].count++;
+							// 使用Big.js精确计算分数
+							const currentScore = new Big(levelStats[levelKey].score);
+							const addScore = new Big(testLevelMap[levelKey] || 0);
+							levelStats[levelKey].score = parseFloat(currentScore.plus(addScore).toString());
+							if (index < 5) {
+								console.log(`  → 识别为: ${levelKey} (${testLevelMap[levelKey]}分)`);
+							}
+						}
+					}
+				});
+			}
+		});
+		if (!hasTestLevelData) {
+			console.log('⚠️  警告: 未找到任何测试等级数据！');
+		}
+
+		// 汇总统计
+		const totalPerformanceScore = Object.values(projectMap).reduce(
+			(sum, p) => sum + p.performanceScore,
+			0,
+		);
+		const totalCommits = allCommits.length;
+		const totalDemandTest = Object.values(projectMap).reduce(
+			(sum, p) => sum + p.demandTestCount,
+			0,
+		);
+		const totalSubmit = Object.values(projectMap).reduce(
+			(sum, p) => sum + p.submitCount,
+			0,
+		);
+		const totalBugTest = Object.values(projectMap).reduce(
+			(sum, p) => sum + p.bugTestCount,
+			0,
+		);
+
+		// 输出详细统计
+		console.log('\n======== 绩效统计报告 ========');
+		console.log(`统计周期: ${formatDateCN(startDate)} ~ ${formatDateCN(endDate)}`);
+		console.log(`用户名称: ${USER_NAME}`);
+		console.log(`部门: ${DEPARTMENT}`);
+		console.log('\n基础统计:');
+		console.log(`  总测试次数: ${totalCommits}`);
+		console.log(`  需求测试: ${totalDemandTest}`);
+		console.log(`  提单: ${totalSubmit}`);
+		console.log(`  缺陷测试: ${totalBugTest}`);
+		console.log('\n等级分布:');
+		Object.keys(levelStats).forEach((level) => {
+			if (levelStats[level].count > 0) {
+				console.log(`  ${level}: ${levelStats[level].count}次 (${levelStats[level].score}分)`);
+			}
+		});
+		console.log(`\n总绩效分数: ${totalPerformanceScore.toFixed(2)}`);
+		console.log('============================\n');
+
+		return {
+			startDate,
+			endDate,
+			totalCommits,
+			totalDemandTest,
+			totalSubmit,
+			totalBugTest,
+			totalPerformanceScore,
+			levelStats,
+			projectMap,
+		};
+	} catch (err) {
+		console.error('❌ 生成绩效统计失败:', err);
 		throw err;
 	}
 }
@@ -360,4 +569,4 @@ if (require.main === module) {
 	});
 }
 
-module.exports = { generateReport };
+module.exports = { generateReport, generatePerformanceStats };
