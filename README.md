@@ -286,6 +286,7 @@ node generate-performance-stats.js week 2026-02-15
 | 变量名 | 必填 | 说明 | 获取地址 |
 |--------|------|------|----------|
 | `SERVERCHAN_KEY` | ❌ | Server酱SendKey | https://sct.ftqq.com/ |
+| `SERVERCHAN_OPENIDS` | ❌ | 需要抄送的 openid，多个用逗号分隔 | Server酱通道配置页 |
 
 ---
 
@@ -305,7 +306,10 @@ Server酱用于青龙面板任务执行结果通知（微信推送）。
 
 ```bash
 SERVERCHAN_KEY=your_sendkey_here
+SERVERCHAN_OPENIDS=openid_1,openid_2
 ```
+
+> `SERVERCHAN_OPENIDS` 仅在消息通道支持 `openid` 抄送时生效；多个接收人请使用英文逗号分隔。
 
 ### 3. 使用方式
 
@@ -316,11 +320,20 @@ Server酱会在以下场景自动推送通知：
 **手动调用：**
 ```bash
 node send-serverchan.js "成功" "./data/ql-task-20260211.log"
+node send-serverchan.js "成功" "./data/ql-task-20260211.log" "openid_1,openid_2"
+node a.js "openid_1,openid_2"
 ```
 
 参数说明：
 - 第一个参数：任务状态（成功/失败）
 - 第二个参数：日志文件路径（可选）
+- 第三个参数：`openid` 列表（可选，多个用英文逗号分隔；未传时默认读取 `SERVERCHAN_OPENIDS`）
+
+### Server酱群发 / 抄送说明
+
+- `send-serverchan.js` 已支持通过 `openid` 参数抄送多人。
+- 可直接在环境变量 `SERVERCHAN_OPENIDS` 中配置，也可在命令行第三个参数传入。
+- 只有当前消息通道支持 `openid` 时，抄送才会生效；不支持时会像普通单发一样发送。
 
 ---
 

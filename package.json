@@ -7,8 +7,8 @@
     "download-work-record": "node download-work-record.js",
     "generate-performance": "node generate-performance-2026.js",
     "validate-performance": "node validate-performance.js",
-    "report:day": "npm run download-work-record && node generate-report.js day",
-    "report:week": "npm run download-work-record && node generate-report.js week",
+    "report:day": "npm run download-work-record && node generate-report-kf.js day",
+    "report:week": "npm run download-work-record && node generate-report-kf.js week",
     "send-email": "node send-email.js",
     "test-holiday": "node test-holiday.js"
   },
