@@ -137,6 +137,9 @@ function getColumnIndexMap(headers) {
 		commitInfo: headers.findIndex((h) => h === '提交信息'),
 		taskStatus: headers.findIndex((h) => h === '任务状态'),
 		demandLevel: headers.findIndex((h) => h === '需求等级'),
+		defectDetector: headers.findIndex((h) => h === '缺陷引出人员'),
+		defectTime: headers.findIndex((h) => h === '缺陷引出日期'),
+		defectDepartment: headers.findIndex((h) => h === '缺陷引出部门'),
 		firstReviewer: headers.findIndex((h) => h === '初审人'),
 		firstReviewDate: headers.findIndex((h) => h === '初审日期'),
 		finalReviewer: headers.findIndex((h) => h === '终审人'),
@@ -158,6 +161,9 @@ function buildRecord(row, colIndex) {
 	const commitInfo = getText(row, colIndex.commitInfo);
 	const taskStatus = getText(row, colIndex.taskStatus);
 	const demandLevel = getText(row, colIndex.demandLevel);
+	const defectDetector = getText(row, colIndex.defectDetector);
+	const defectTime = getText(row, colIndex.defectTime);
+	const defectDepartment = getText(row, colIndex.defectDepartment);
 
 	return {
 		category,
@@ -171,11 +177,28 @@ function buildRecord(row, colIndex) {
 		commitInfo,
 		taskStatus,
 		demandLevel,
+		defectDetector,
+		defectTime,
+		defectDepartment,
 		key: [regDate, category, taskContent, ticketNo, commitNo].join('|'),
 	};
 }
 
-function formatBaseLine(record) {
+function isDefectCategory(category) {
+	return category.includes('缺陷') && category !== '缺陷转需求';
+}
+
+function formatDefectSourceInfo(record) {
+	const parts = [
+		`缺陷引出人:${record.defectDetector || '未填写'}`,
+		`缺陷部门:${record.defectDepartment || '未填写'}`,
+		`缺陷时间:${record.defectTime || '未填写'}`,
+	];
+	return `【${parts.join(' / ')}】`;
+}
+
+function formatBaseLine(record, options = {}) {
+	const { includeDefectSourceInfo = false } = options;
 	const tags = [];
 	if (record.productType) tags.push(`【${record.productType}】`);
 	if (record.projectName) tags.push(`【${record.projectName}】`);
@@ -196,7 +219,12 @@ function formatBaseLine(record) {
 	}
 
 	const suffix = suffixParts.length > 0 ? `【${suffixParts.join(' / ')}】` : '';
-	return `${tags.join('')}${content}${suffix}`;
+	const line = `${tags.join('')}${content}${suffix}`;
+	if (includeDefectSourceInfo && isDefectCategory(record.category)) {
+		return `${line}${formatDefectSourceInfo(record)}`;
+	}
+
+	return line;
 }
 
 function formatCommitLine(record) {
@@ -291,13 +319,16 @@ async function extractDeveloperReportData(type, targetDate) {
 	const packs = [];
 	const achievedItems = [];
 	const nextPlanItems = [];
+	const includeDefectSourceInfo = type === 'day';
+	const formatBaseItem = (item) =>
+		formatBaseLine(item, { includeDefectSourceInfo });
 
 	for (let i = 1; i < data.length; i++) {
 		const row = data[i];
 		const registrant = getText(row, colIndex.registrant);
 		const regDate = getText(row, colIndex.regDate);
 
-		if (registrant !== USER_NAME || !isDateInRange(regDate, startDate, endDate)) {
+		if (registrant !== USER_NAME) {
 			continue;
 		}
 
@@ -306,12 +337,20 @@ async function extractDeveloperReportData(type, targetDate) {
 			continue;
 		}
 
+		if (inProgressTaskStatuses.has(record.taskStatus)) {
+			pushUnique(nextPlanItems, record, formatBaseItem);
+		}
+
+		if (!isDateInRange(regDate, startDate, endDate)) {
+			continue;
+		}
+
 		if (
 			record.category.includes('需求') &&
 			record.category !== '缺陷转需求' &&
 			allowedTaskStatuses.has(record.taskStatus)
 		) {
-			pushUnique(demands, record, formatBaseLine);
+			pushUnique(demands, record, formatBaseItem);
 		}
 
 		if (
@@ -319,20 +358,12 @@ async function extractDeveloperReportData(type, targetDate) {
 			record.category !== '缺陷转需求' &&
 			completedTaskStatuses.has(record.taskStatus)
 		) {
-			pushUnique(achievedItems, record, formatBaseLine);
-		}
-
-		if (
-			(record.category.includes('需求') || record.category.includes('缺陷')) &&
-			record.category !== '缺陷转需求' &&
-			inProgressTaskStatuses.has(record.taskStatus)
-		) {
-			pushUnique(nextPlanItems, record, formatBaseLine);
+			pushUnique(achievedItems, record, formatBaseItem);
 		}
 
 		if (record.category.includes('缺陷') && record.category !== '缺陷转需求') {
 			const targetList = /^QXWT-/i.test(record.ticketNo) ? ppDefects : nonPpDefects;
-			pushUnique(targetList, record, formatBaseLine);
+			pushUnique(targetList, record, formatBaseItem);
 		}
 
 		if (
