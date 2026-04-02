@@ -1,5 +1,5 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/usr/bin/env sh
+set -eu
 
 # ql-git-pull.sh
 # Pull (reset) a branch (default: master) for a target repo or all git repos under a directory.
@@ -9,46 +9,145 @@ set -euo pipefail
 #   ql-git-pull.sh /ql/data/scripts master       # pull master for a git repo or scan subdirs
 #   DRY_RUN=true ql-git-pull.sh . master         # dry-run on current repo
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_PATH="${1:-/ql/data/scripts}"
-BRANCH="${2:-master}"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+DEFAULT_REPO_PATH="/ql/data/scripts"
+DEFAULT_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
+LOG_DIR="${SCRIPT_DIR}/data"
+mkdir -p "${LOG_DIR}"
+LOG_FILE="${LOG_DIR}/ql-git-pull-$(date +%Y%m%d_%H%M%S).log"
+RAW_ARGS="$*"
+IGNORED_ARGS=""
+REPO_PATH=""
+BRANCH=""
+
+write_log_line() {
+  line="$1"
+  printf '%s\n' "$line"
+  printf '%s\n' "$line" >> "$LOG_FILE"
+}
+
+append_ignored_arg() {
+  arg="$1"
+  if [ -n "$IGNORED_ARGS" ]; then
+    IGNORED_ARGS="${IGNORED_ARGS}, ${arg}"
+  else
+    IGNORED_ARGS="${arg}"
+  fi
+}
 
 ts() {
   date '+%Y-%m-%d %H:%M:%S'
 }
 
 log_info() {
-  echo "[$(ts)] [INFO] $*"
+  write_log_line "[$(ts)] [INFO] $*"
 }
 
 log_warn() {
-  echo "[$(ts)] [WARN] $*"
+  write_log_line "[$(ts)] [WARN] $*"
 }
 
 log_error() {
-  echo "[$(ts)] [ERROR] $*"
+  write_log_line "[$(ts)] [ERROR] $*"
+}
+
+log_cmd_output() {
+  write_log_line "[$(ts)] [CMD] $*"
 }
 
 run_cmd() {
-  local desc="$1"
+  desc="$1"
   shift
+  tmp_file="${TMPDIR:-/tmp}/ql-git-pull.$$.$(date +%s).log"
 
   log_info "${desc}"
-  "$@"
+  if "$@" >"$tmp_file" 2>&1; then
+    while IFS= read -r line || [ -n "$line" ]; do
+      log_cmd_output "$line"
+    done < "$tmp_file"
+    rm -f "$tmp_file"
+    return 0
+  fi
+
+  status="$?"
+  while IFS= read -r line || [ -n "$line" ]; do
+    log_cmd_output "$line"
+  done < "$tmp_file"
+  rm -f "$tmp_file"
+  return "$status"
 }
 
-trap 'log_error "脚本执行失败，退出码: $?，行号: ${LINENO}"' ERR
+normalize_args() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      now|*.sh)
+        append_ignored_arg "$1"
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
+  arg1="${1:-}"
+  arg2="${2:-}"
+
+  if [ -n "$arg2" ]; then
+    REPO_PATH="$arg1"
+    BRANCH="$arg2"
+    return
+  fi
+
+  if [ -n "$arg1" ]; then
+    if [ -d "$arg1" ]; then
+      REPO_PATH="$arg1"
+      BRANCH="$DEFAULT_BRANCH"
+      return
+    fi
+
+    case "$arg1" in
+      /*|./*|../*|*/*)
+        REPO_PATH="$arg1"
+        BRANCH="$DEFAULT_BRANCH"
+        ;;
+      *)
+        REPO_PATH="$DEFAULT_REPO_PATH"
+        BRANCH="$arg1"
+        ;;
+    esac
+    return
+  fi
+
+  REPO_PATH="$DEFAULT_REPO_PATH"
+  BRANCH="$DEFAULT_BRANCH"
+}
+
+on_exit() {
+  exit_code="$?"
+  if [ "$exit_code" -ne 0 ]; then
+    log_error "脚本执行失败，退出码: ${exit_code}"
+  fi
+}
+
+trap on_exit EXIT
+
+normalize_args "$@"
 
 log_info "ql-git-pull 启动"
 log_info "script dir: ${SCRIPT_DIR}"
+log_info "raw args: ${RAW_ARGS:-<empty>}"
+if [ -n "$IGNORED_ARGS" ]; then
+  log_info "ignored ql args: ${IGNORED_ARGS}"
+fi
 log_info "target path: ${REPO_PATH}"
 log_info "branch: ${BRANCH}"
 log_info "dry run: ${DRY_RUN}"
+log_info "log file: ${LOG_FILE}"
 
 action_pull() {
-  local dir="$1"
-  local current_dir
+  dir="$1"
   log_info "---- processing: $dir"
   if [ ! -d "$dir/.git" ]; then
     log_warn "  -> no .git in $dir, skipping"
@@ -67,8 +166,7 @@ action_pull() {
   run_cmd "  -> fetching origin/${BRANCH}" git fetch origin "${BRANCH}" || { log_error "  -> git fetch failed"; cd "$current_dir" || true; return 1; }
 
   if [ "${DRY_RUN}" = "true" ]; then
-    log_info "  -> DRY_RUN: showing commits HEAD..origin/${BRANCH}"
-    git --no-pager log --oneline --decorate --pretty=format:'%h %ad %s' --date=short HEAD..origin/"${BRANCH}" || true
+    run_cmd "  -> DRY_RUN: showing commits HEAD..origin/${BRANCH}" git --no-pager log --oneline --decorate --pretty=format:%h\ %ad\ %s --date=short HEAD..origin/"${BRANCH}" || true
     cd "$current_dir" || true
     return 0
   fi
@@ -81,8 +179,7 @@ action_pull() {
   fi
 
   run_cmd "  -> resetting to origin/${BRANCH}" git reset --hard origin/"${BRANCH}" || { log_error "  -> reset failed"; cd "$current_dir" || true; return 1; }
-  log_info "  -> pulling origin/${BRANCH}"
-  git pull origin "${BRANCH}" || true
+  run_cmd "  -> pulling origin/${BRANCH}" git pull origin "${BRANCH}" || true
   cd "$current_dir" || true
   log_info "  -> done: $dir"
 }
