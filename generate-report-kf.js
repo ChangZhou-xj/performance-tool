@@ -126,6 +126,7 @@ function getText(row, index) {
 function getColumnIndexMap(headers) {
 	return {
 		registrant: headers.findIndex((h) => h === '登记人'),
+		registerDate: headers.findIndex((h) => h === '登记日期'),
 		regDate: headers.findIndex((h) => h === '开发完成日期'),
 		category: headers.findIndex((h) => h === '类别'),
 		taskContent: headers.findIndex((h) => h === '任务内容'),
@@ -150,6 +151,7 @@ function getColumnIndexMap(headers) {
 }
 
 function buildRecord(row, colIndex) {
+	const registerDate = getText(row, colIndex.registerDate);
 	const category = getText(row, colIndex.category);
 	const taskContent = getText(row, colIndex.taskContent);
 	const productType = getText(row, colIndex.productType);
@@ -166,6 +168,7 @@ function buildRecord(row, colIndex) {
 	const defectDepartment = getText(row, colIndex.defectDepartment);
 
 	return {
+		registerDate,
 		category,
 		taskContent,
 		productType,
@@ -188,6 +191,10 @@ function isDefectCategory(category) {
 	return category.includes('缺陷') && category !== '缺陷转需求';
 }
 
+function isDemandCategory(category) {
+	return category.includes('需求') && category !== '缺陷转需求';
+}
+
 function formatDefectSourceInfo(record) {
 	const parts = [
 		`缺陷引出人:${record.defectDetector || '未填写'}`,
@@ -200,7 +207,7 @@ function formatDefectSourceInfo(record) {
 function formatBaseLine(record, options = {}) {
 	const { includeDefectSourceInfo = false } = options;
 	const tags = [];
-	if (record.productType) tags.push(`【${record.productType}】`);
+	if (record.productId) tags.push(`【${record.productType}：${record.productId}】`);
 	if (record.projectName) tags.push(`【${record.projectName}】`);
 	tags.push(`【${record.category || '未分类'}】`);
 	if (record.demandLevel && record.category.includes('需求')) {
@@ -229,7 +236,7 @@ function formatBaseLine(record, options = {}) {
 
 function formatCommitLine(record) {
 	const tags = ['【代码提交】'];
-	if (record.productType) tags.unshift(`【${record.productType}】`);
+	if (record.productId) tags.unshift(`【${record.productType}：${record.productId}】`);
 	if (record.projectName) tags.splice(1, 0, `【${record.projectName}】`);
 	const content = record.commitInfo || record.taskContent || '暂无提交说明';
 	const suffixParts = [];
@@ -241,7 +248,7 @@ function formatCommitLine(record) {
 
 function formatReviewLine(record) {
 	const tags = ['【代码评审】'];
-	if (record.productType) tags.unshift(`【${record.productType}】`);
+	if (record.productId) tags.unshift(`【${record.productType}：${record.productId}】`);
 	if (record.projectName) tags.splice(1, 0, `【${record.projectName}】`);
 	const content = record.taskContent || record.commitInfo || '完成代码评审流程';
 	const suffix = record.ticketNo ? `【${record.ticketNo}】` : '';
@@ -250,7 +257,7 @@ function formatReviewLine(record) {
 
 function formatOtherLine(record, label) {
 	const tags = [`【${label}】`];
-	if (record.productType) tags.unshift(`【${record.productType}】`);
+	if (record.productId) tags.unshift(`【${record.productType}：${record.productId}】`);
 	if (record.projectName) tags.splice(1, 0, `【${record.projectName}】`);
 	const content = record.taskContent || record.commitInfo || label;
 	const suffixParts = [];
@@ -265,6 +272,10 @@ function pushUnique(list, record, formatter) {
 		key: record.key,
 		date: record.regDate,
 		text: formatter(record),
+		projectName: record.projectName,
+		productType: record.productType,
+		productId: record.productId,
+		category: record.category,
 	});
 }
 
@@ -296,6 +307,67 @@ function collectUniqueItems(...groups) {
 	return Array.from(map.values());
 }
 
+
+function formatPercentage(value) {
+	if (!Number.isFinite(value)) {
+		return '0%';
+	}
+
+	const rounded = Number(value.toFixed(2));
+	return `${rounded}%`;
+}
+
+function buildWeekSummary(reportData) {
+	const demandCount = reportData.demands.length;
+	const defectCount = reportData.ppDefects.length + reportData.nonPpDefects.length;
+
+	return `● 需求开发（共${demandCount}个）\n● 问题修复（共${defectCount}个）\n`;
+}
+
+function buildWeekFocus(reportData) {
+	const {
+		month,
+		completedCount,
+		inProgressCount,
+	} = reportData.monthlyDemandProgress;
+	const totalCount = completedCount + inProgressCount;
+	const completedRatio = totalCount > 0 ? (completedCount / totalCount) * 100 : 0;
+	const inProgressRatio = totalCount > 0 ? (inProgressCount / totalCount) * 100 : 0;
+
+	return (
+		`1. ${month}月份月度任务开发` +
+		`（开发完成${completedCount}个，占比${formatPercentage(completedRatio)}；` +
+		`进行中${inProgressCount}个，占比${formatPercentage(inProgressRatio)}）\n`
+	);
+}
+
+function buildWeekReportMarkdown(reportData) {
+	const defectItems = collectUniqueItems(
+		reportData.ppDefects,
+		reportData.nonPpDefects,
+	);
+	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
+
+	let markdown = '';
+	markdown += '领导好，本周工作内容如下：\n\n';
+	markdown += '本周内容\n';
+	markdown += buildWeekSummary(reportData);
+	markdown += '\n';
+	markdown += '重点工作\n';
+	markdown += buildWeekFocus(reportData);
+	markdown += '\n';
+	markdown += '需求\n';
+	markdown += buildSectionList(reportData.demands, '');
+	markdown += '\n';
+	markdown += '问题修复\n';
+	markdown += buildSectionList(defectItems, '');
+	markdown += '\n';
+	markdown += '未完成工作\n';
+	markdown += buildSectionList(nextPlanItems, '');
+
+	return markdown;
+}
+
 async function extractDeveloperReportData(type, targetDate) {
 	const workRecordPath = getWorkRecordPath();
 	const workbook = xlsx.readFile(workRecordPath);
@@ -309,6 +381,10 @@ async function extractDeveloperReportData(type, targetDate) {
 	const headers = data[0];
 	const colIndex = getColumnIndexMap(headers);
 	const { startDate, endDate } = getDateRange(type, targetDate);
+	const { startDate: monthStartDate, endDate: monthEndDate } = getDateRange(
+		'month',
+		targetDate,
+	);
 
 	const demands = [];
 	const ppDefects = [];
@@ -319,6 +395,11 @@ async function extractDeveloperReportData(type, targetDate) {
 	const packs = [];
 	const achievedItems = [];
 	const nextPlanItems = [];
+	const monthlyDemandProgress = {
+		month: monthStartDate.getMonth() + 1,
+		completedCount: 0,
+		inProgressCount: 0,
+	};
 	const includeDefectSourceInfo = type === 'day';
 	const formatBaseItem = (item) =>
 		formatBaseLine(item, { includeDefectSourceInfo });
@@ -337,6 +418,24 @@ async function extractDeveloperReportData(type, targetDate) {
 			continue;
 		}
 
+		const isDemand = isDemandCategory(record.category);
+		const isMonthDemandCompleted =
+			isDemand &&
+			allowedTaskStatuses.has(record.taskStatus) &&
+			isDateInRange(regDate, monthStartDate, monthEndDate);
+		const isMonthDemandInProgress =
+			isDemand &&
+			inProgressTaskStatuses.has(record.taskStatus) &&
+			isDateInRange(record.registerDate, monthStartDate, monthEndDate);
+
+		if (isMonthDemandCompleted) {
+			monthlyDemandProgress.completedCount += 1;
+		}
+
+		if (isMonthDemandInProgress) {
+			monthlyDemandProgress.inProgressCount += 1;
+		}
+
 		if (inProgressTaskStatuses.has(record.taskStatus)) {
 			pushUnique(nextPlanItems, record, formatBaseItem);
 		}
@@ -345,16 +444,12 @@ async function extractDeveloperReportData(type, targetDate) {
 			continue;
 		}
 
-		if (
-			record.category.includes('需求') &&
-			record.category !== '缺陷转需求' &&
-			allowedTaskStatuses.has(record.taskStatus)
-		) {
+		if (isDemand && allowedTaskStatuses.has(record.taskStatus)) {
 			pushUnique(demands, record, formatBaseItem);
 		}
 
 		if (
-			(record.category.includes('需求') || record.category.includes('缺陷')) &&
+			(isDemand || record.category.includes('缺陷')) &&
 			record.category !== '缺陷转需求' &&
 			completedTaskStatuses.has(record.taskStatus)
 		) {
@@ -409,10 +504,15 @@ async function extractDeveloperReportData(type, targetDate) {
 		packs,
 		achievedItems,
 		nextPlanItems,
+		monthlyDemandProgress,
 	};
 }
 
 function buildReportMarkdown(type, reportData) {
+	if (type === 'week') {
+		return buildWeekReportMarkdown(reportData);
+	}
+
 	const periodLabel = type === 'day' ? '今日' : type === 'week' ? '本周' : '本月';
 	const nextPlanLabel = type === 'day' ? '明日' : type === 'week' ? '下周' : '下月';
 	const achievedItems = collectUniqueItems(reportData.achievedItems);
