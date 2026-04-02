@@ -14,32 +14,58 @@ REPO_PATH="${1:-/ql/data/scripts}"
 BRANCH="${2:-master}"
 DRY_RUN="${DRY_RUN:-false}"
 
-echo "[ql-git-pull] script dir: ${SCRIPT_DIR}"
-echo "[ql-git-pull] target path: ${REPO_PATH}"
-echo "[ql-git-pull] branch: ${BRANCH}"
-echo "[ql-git-pull] dry run: ${DRY_RUN}"
+ts() {
+  date '+%Y-%m-%d %H:%M:%S'
+}
+
+log_info() {
+  echo "[$(ts)] [INFO] $*"
+}
+
+log_warn() {
+  echo "[$(ts)] [WARN] $*"
+}
+
+log_error() {
+  echo "[$(ts)] [ERROR] $*"
+}
+
+run_cmd() {
+  local desc="$1"
+  shift
+
+  log_info "${desc}"
+  "$@"
+}
+
+trap 'log_error "脚本执行失败，退出码: $?，行号: ${LINENO}"' ERR
+
+log_info "ql-git-pull 启动"
+log_info "script dir: ${SCRIPT_DIR}"
+log_info "target path: ${REPO_PATH}"
+log_info "branch: ${BRANCH}"
+log_info "dry run: ${DRY_RUN}"
 
 action_pull() {
   local dir="$1"
-  echo "---- processing: $dir"
+  log_info "---- processing: $dir"
   if [ ! -d "$dir/.git" ]; then
-    echo "  -> no .git in $dir, skipping"
+    log_warn "  -> no .git in $dir, skipping"
     return 0
   fi
 
   pushd "$dir" >/dev/null || return 1
   # require origin remote
   if ! git remote | grep -q '^origin$'; then
-    echo "  -> no 'origin' remote in $dir, skipping"
+    log_warn "  -> no 'origin' remote in $dir, skipping"
     popd >/dev/null
     return 0
   fi
 
-  echo "  -> fetching origin/${BRANCH}"
-  git fetch origin "${BRANCH}" || { echo "  -> git fetch failed"; popd >/dev/null; return 1; }
+  run_cmd "  -> fetching origin/${BRANCH}" git fetch origin "${BRANCH}" || { log_error "  -> git fetch failed"; popd >/dev/null; return 1; }
 
   if [ "${DRY_RUN}" = "true" ]; then
-    echo "  -> DRY_RUN: showing commits HEAD..origin/${BRANCH}"
+    log_info "  -> DRY_RUN: showing commits HEAD..origin/${BRANCH}"
     git --no-pager log --oneline --decorate --pretty=format:'%h %ad %s' --date=short HEAD..origin/"${BRANCH}" || true
     popd >/dev/null
     return 0
@@ -47,22 +73,21 @@ action_pull() {
 
   # checkout or create the branch tracking origin
   if git rev-parse --verify "${BRANCH}" >/dev/null 2>&1; then
-    git checkout "${BRANCH}" || git switch "${BRANCH}"
+    run_cmd "  -> switching to local branch ${BRANCH}" git checkout "${BRANCH}" || run_cmd "  -> fallback switch ${BRANCH}" git switch "${BRANCH}"
   else
-    git checkout -B "${BRANCH}" origin/"${BRANCH}" || git checkout -b "${BRANCH}"
+    run_cmd "  -> creating local branch ${BRANCH} from origin/${BRANCH}" git checkout -B "${BRANCH}" origin/"${BRANCH}" || run_cmd "  -> fallback create local branch ${BRANCH}" git checkout -b "${BRANCH}"
   fi
 
-  echo "  -> resetting to origin/${BRANCH}"
-  git reset --hard origin/"${BRANCH}" || { echo "  -> reset failed"; popd >/dev/null; return 1; }
-  echo "  -> pulling origin/${BRANCH}"
+  run_cmd "  -> resetting to origin/${BRANCH}" git reset --hard origin/"${BRANCH}" || { log_error "  -> reset failed"; popd >/dev/null; return 1; }
+  log_info "  -> pulling origin/${BRANCH}"
   git pull origin "${BRANCH}" || true
   popd >/dev/null
-  echo "  -> done: $dir"
+  log_info "  -> done: $dir"
 }
 
 # resolve repo path
 if [ ! -d "${REPO_PATH}" ]; then
-  echo "[ql-git-pull] target path '${REPO_PATH}' not found, fallback to script dir: ${SCRIPT_DIR}"
+  log_warn "target path '${REPO_PATH}' not found, fallback to script dir: ${SCRIPT_DIR}"
   REPO_PATH="${SCRIPT_DIR}"
 fi
 
@@ -85,9 +110,9 @@ for d in "${REPO_PATH}"/*/; do
 done
 
 if [ "$found" -eq 0 ]; then
-  echo "[ql-git-pull] no git repositories found under ${REPO_PATH}"
+  log_error "no git repositories found under ${REPO_PATH}"
   exit 1
 fi
 
-echo "[ql-git-pull] all done"
+log_info "all done"
 exit 0
