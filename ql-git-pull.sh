@@ -13,6 +13,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_REPO_PATH="/ql/data/scripts"
 DEFAULT_BRANCH="master"
 DRY_RUN="${DRY_RUN:-false}"
+CMD_TIMEOUT="${CMD_TIMEOUT:-300}"
 LOG_DIR="${SCRIPT_DIR}/data"
 mkdir -p "${LOG_DIR}"
 LOG_FILE="${LOG_DIR}/ql-git-pull-$(date +%Y%m%d_%H%M%S).log"
@@ -20,6 +21,9 @@ RAW_ARGS="$*"
 IGNORED_ARGS=""
 REPO_PATH=""
 BRANCH=""
+
+export GIT_TERMINAL_PROMPT=0
+export GIT_PAGER=cat
 
 write_log_line() {
   line="$1"
@@ -62,6 +66,28 @@ run_cmd() {
   tmp_file="${TMPDIR:-/tmp}/ql-git-pull.$$.$(date +%s).log"
 
   log_info "${desc}"
+  if command -v timeout >/dev/null 2>&1; then
+    log_info "  -> timeout: ${CMD_TIMEOUT}s"
+    if timeout "${CMD_TIMEOUT}" "$@" >"$tmp_file" 2>&1; then
+      while IFS= read -r line || [ -n "$line" ]; do
+        log_cmd_output "$line"
+      done < "$tmp_file"
+      rm -f "$tmp_file"
+      return 0
+    fi
+
+    status="$?"
+    while IFS= read -r line || [ -n "$line" ]; do
+      log_cmd_output "$line"
+    done < "$tmp_file"
+    rm -f "$tmp_file"
+
+    if [ "$status" -eq 124 ]; then
+      log_error "命令执行超时(${CMD_TIMEOUT}s): ${desc}"
+    fi
+    return "$status"
+  fi
+
   if "$@" >"$tmp_file" 2>&1; then
     while IFS= read -r line || [ -n "$line" ]; do
       log_cmd_output "$line"
@@ -144,6 +170,7 @@ fi
 log_info "target path: ${REPO_PATH}"
 log_info "branch: ${BRANCH}"
 log_info "dry run: ${DRY_RUN}"
+log_info "cmd timeout: ${CMD_TIMEOUT}s"
 log_info "log file: ${LOG_FILE}"
 
 action_pull() {
