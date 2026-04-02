@@ -48,26 +48,28 @@ log_info "dry run: ${DRY_RUN}"
 
 action_pull() {
   local dir="$1"
+  local current_dir
   log_info "---- processing: $dir"
   if [ ! -d "$dir/.git" ]; then
     log_warn "  -> no .git in $dir, skipping"
     return 0
   fi
 
-  pushd "$dir" >/dev/null || return 1
+  current_dir="$(pwd)"
+  cd "$dir" || return 1
   # require origin remote
   if ! git remote | grep -q '^origin$'; then
     log_warn "  -> no 'origin' remote in $dir, skipping"
-    popd >/dev/null
+    cd "$current_dir" || true
     return 0
   fi
 
-  run_cmd "  -> fetching origin/${BRANCH}" git fetch origin "${BRANCH}" || { log_error "  -> git fetch failed"; popd >/dev/null; return 1; }
+  run_cmd "  -> fetching origin/${BRANCH}" git fetch origin "${BRANCH}" || { log_error "  -> git fetch failed"; cd "$current_dir" || true; return 1; }
 
   if [ "${DRY_RUN}" = "true" ]; then
     log_info "  -> DRY_RUN: showing commits HEAD..origin/${BRANCH}"
     git --no-pager log --oneline --decorate --pretty=format:'%h %ad %s' --date=short HEAD..origin/"${BRANCH}" || true
-    popd >/dev/null
+    cd "$current_dir" || true
     return 0
   fi
 
@@ -78,10 +80,10 @@ action_pull() {
     run_cmd "  -> creating local branch ${BRANCH} from origin/${BRANCH}" git checkout -B "${BRANCH}" origin/"${BRANCH}" || run_cmd "  -> fallback create local branch ${BRANCH}" git checkout -b "${BRANCH}"
   fi
 
-  run_cmd "  -> resetting to origin/${BRANCH}" git reset --hard origin/"${BRANCH}" || { log_error "  -> reset failed"; popd >/dev/null; return 1; }
+  run_cmd "  -> resetting to origin/${BRANCH}" git reset --hard origin/"${BRANCH}" || { log_error "  -> reset failed"; cd "$current_dir" || true; return 1; }
   log_info "  -> pulling origin/${BRANCH}"
   git pull origin "${BRANCH}" || true
-  popd >/dev/null
+  cd "$current_dir" || true
   log_info "  -> done: $dir"
 }
 
