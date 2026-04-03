@@ -284,6 +284,7 @@ function pushUnique(list, record, formatter) {
 		productType: record.productType,
 		productId: record.productId,
 		category: record.category,
+		defectDetector: record.defectDetector,
 	});
 }
 

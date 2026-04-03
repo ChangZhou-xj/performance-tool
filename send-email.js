@@ -5,6 +5,7 @@ const fs = require('fs');
 const dayjs = require('dayjs');
 const EmailService = require('./service/email-service');
 const HolidayService = require('./service/holiday-service');
+const { extractDeveloperReportData } = require('./generate-report-kf');
 
 console.log('====================================');
 console.log('开始发送日报邮件');
@@ -31,6 +32,52 @@ const recipientConfig = {
   to: process.env.EMAIL_TO ? process.env.EMAIL_TO.split(',').map(e => e.trim()) : [], // 收件人列表
   cc: process.env.EMAIL_CC ? process.env.EMAIL_CC.split(',').map(e => e.trim()) : [], // 抄送列表
 };
+
+/**
+ * 解析抄送人集合文件，返回 姓名 → 邮箱 的 Map
+ * @param {string} filePath - 抄送人集合.md 路径
+ * @returns {Map<string, string>}
+ */
+function parseEmailRecipientMap(filePath) {
+  if (!fs.existsSync(filePath)) return new Map();
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const match = content.match(/邮箱范围：([^\n]+)/);
+  if (!match) return new Map();
+  const map = new Map();
+  const entries = match[1].split(';');
+  for (const entry of entries) {
+    const m = entry.trim().match(/^\*?([^<]+)<([^>]+)>/);
+    if (!m) continue;
+    const fullName = m[1].trim();
+    const email = m[2].trim();
+    map.set(fullName, email);
+    // 同时以去除括号内容的短名映射（如 "陈鑫（财信）" → "陈鑫"）
+    const shortName = fullName.replace(/[（(][^）)]*[）)]/g, '').trim();
+    if (shortName !== fullName && !map.has(shortName)) {
+      map.set(shortName, email);
+    }
+  }
+  return map;
+}
+
+/**
+ * 根据报告数据和邮箱映射构建动态抄送人列表（仅缺陷引出人员）
+ * @param {object} reportData
+ * @param {Map<string, string>} emailMap
+ * @returns {string[]}
+ */
+function buildDynamicCcList(reportData, emailMap) {
+  if (!reportData) return [];
+  const allDefects = [...reportData.ppDefects, ...reportData.nonPpDefects];
+  const emailSet = new Set();
+  for (const item of allDefects) {
+    const name = (item.defectDetector || '').trim();
+    if (!name) continue;
+    const email = emailMap.get(name);
+    if (email) emailSet.add(email);
+  }
+  return Array.from(emailSet);
+}
 
 /**
  * 获取最新的日报文件
@@ -117,6 +164,16 @@ async function sendDailyReportEmail() {
 
     console.log('找到日报文件:', reportFilePath);
 
+    // 构建动态抄送（缺陷引出人员）
+    const recipientFilePath = path.join(__dirname, '抄送人集合.md');
+    const emailRecipientMap = parseEmailRecipientMap(recipientFilePath);
+    const reportData = await extractDeveloperReportData('day', new Date());
+    const dynamicCc = buildDynamicCcList(reportData, emailRecipientMap);
+    const finalCc = [...new Set([...recipientConfig.cc, ...dynamicCc])];
+    if (dynamicCc.length > 0) {
+      console.log('动态抄送（缺陷引出人）:', dynamicCc.join(', '));
+    }
+
     // 创建邮件服务实例
     const emailService = new EmailService(emailConfig);
 
@@ -129,7 +186,7 @@ async function sendDailyReportEmail() {
     await emailService.sendDailyReport({
       reportFilePath: reportFilePath,
       to: recipientConfig.to,
-      cc: recipientConfig.cc.length > 0 ? recipientConfig.cc : undefined,
+      cc: finalCc.length > 0 ? finalCc : undefined,
       subject: subject,
     });
 
@@ -142,8 +199,8 @@ async function sendDailyReportEmail() {
     console.log('✅ 邮件发送成功！');
     console.log('====================================');
     console.log('收件人:', recipientConfig.to.join(', '));
-    if (recipientConfig.cc.length > 0) {
-      console.log('抄送:', recipientConfig.cc.join(', '));
+    if (finalCc.length > 0) {
+      console.log('抄送:', finalCc.join(', '));
     }
     console.log('====================================\n');
 
