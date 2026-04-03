@@ -138,6 +138,7 @@ function getColumnIndexMap(headers) {
 		commitInfo: headers.findIndex((h) => h === '提交信息'),
 		taskStatus: headers.findIndex((h) => h === '任务状态'),
 		demandLevel: headers.findIndex((h) => h === '需求等级'),
+		plannedFinish: headers.findIndex((h) => h === '计划完成日期'),
 		defectDetector: headers.findIndex((h) => h === '缺陷引出人员'),
 		defectTime: headers.findIndex((h) => h === '缺陷引出日期'),
 		defectDepartment: headers.findIndex((h) => h === '缺陷引出部门'),
@@ -163,9 +164,11 @@ function buildRecord(row, colIndex) {
 	const commitInfo = getText(row, colIndex.commitInfo);
 	const taskStatus = getText(row, colIndex.taskStatus);
 	const demandLevel = getText(row, colIndex.demandLevel);
+	const plannedFinish = getText(row, colIndex.plannedFinish);
 	const defectDetector = getText(row, colIndex.defectDetector);
 	const defectTime = getText(row, colIndex.defectTime);
 	const defectDepartment = getText(row, colIndex.defectDepartment);
+
 
 	return {
 		registerDate,
@@ -180,6 +183,7 @@ function buildRecord(row, colIndex) {
 		commitInfo,
 		taskStatus,
 		demandLevel,
+		plannedFinish,
 		defectDetector,
 		defectTime,
 		defectDepartment,
@@ -190,7 +194,6 @@ function buildRecord(row, colIndex) {
 function isDefectCategory(category) {
 	return category.includes('缺陷') && category !== '缺陷转需求';
 }
-
 function isDemandCategory(category) {
 	return category.includes('需求') && category !== '缺陷转需求';
 }
@@ -227,7 +230,12 @@ function formatBaseLine(record, options = {}) {
 
 	const suffix = suffixParts.length > 0 ? `【${suffixParts.join(' / ')}】` : '';
 	const line = `${tags.join('')}${content}${suffix}`;
-	if (includeDefectSourceInfo && isDefectCategory(record.category)) {
+	// 仅在需要展示缺陷来源信息的场景（例如日报），且为缺陷类，且任务为开发完成时，拼接缺陷引出信息
+	if (
+		includeDefectSourceInfo &&
+		isDefectCategory(record.category) &&
+		completedTaskStatuses.has(record.taskStatus)
+	) {
 		return `${line}${formatDefectSourceInfo(record)}`;
 	}
 
@@ -404,6 +412,13 @@ async function extractDeveloperReportData(type, targetDate) {
 	const formatBaseItem = (item) =>
 		formatBaseLine(item, { includeDefectSourceInfo });
 
+	// 专门用于“明日/下周/下月工作计划”的格式化：在基础行末尾追加计划完成时间
+	const formatNextPlanItem = (item) => {
+		const base = formatBaseLine(item, { includeDefectSourceInfo });
+		const plan = item.plannedFinish ? `【计划完成:${item.plannedFinish}】` : '【计划完成:未填写】';
+		return `${base}${plan}`;
+	};
+
 	for (let i = 1; i < data.length; i++) {
 		const row = data[i];
 		const registrant = getText(row, colIndex.registrant);
@@ -437,7 +452,7 @@ async function extractDeveloperReportData(type, targetDate) {
 		}
 
 		if (inProgressTaskStatuses.has(record.taskStatus)) {
-			pushUnique(nextPlanItems, record, formatBaseItem);
+			pushUnique(nextPlanItems, record, formatNextPlanItem);
 		}
 
 		if (!isDateInRange(regDate, startDate, endDate)) {
