@@ -191,8 +191,12 @@ function buildRecord(row, colIndex) {
 	};
 }
 
+function isNoCommitDefect(category) {
+	return category === '程序缺陷（无提交）';
+}
+
 function isDefectCategory(category) {
-	return category.includes('缺陷') && category !== '缺陷转需求';
+	return category.includes('缺陷') && category !== '缺陷转需求' && !isNoCommitDefect(category);
 }
 function isDemandCategory(category) {
 	return category.includes('需求') && category !== '缺陷转需求';
@@ -263,6 +267,12 @@ function formatReviewLine(record) {
 	return `${tags.join('')}${content}${suffix}`;
 }
 
+function formatNoCommitDefectLine(record) {
+	const problem = record.taskContent || '暂无内容';
+	const reason = record.commitInfo || '暂无';
+	return `问题：${problem}  原因：${reason}`;
+}
+
 function formatOtherLine(record, label) {
 	const tags = [`【${label}】`];
 	if (record.productId) tags.unshift(`【${record.productType}：${record.productId}】`);
@@ -327,7 +337,7 @@ function formatPercentage(value) {
 }
 
 function buildWeekSummary(reportData) {
-	const demandCount = reportData.demands.length;
+	const demandCount = reportData.demands.length + reportData.defectToDemands.length;
 	const defectCount = reportData.ppDefects.length + reportData.nonPpDefects.length;
 
 	return `● 需求开发（共${demandCount}个）\n● 问题修复（共${defectCount}个）\n`;
@@ -366,7 +376,7 @@ function buildWeekReportMarkdown(reportData) {
 	markdown += buildWeekFocus(reportData);
 	markdown += '\n';
 	markdown += '需求\n';
-	markdown += buildSectionList(reportData.demands, '');
+	markdown += buildSectionList([...reportData.demands, ...reportData.defectToDemands], '');
 	markdown += '\n';
 	markdown += '问题修复\n';
 	markdown += buildSectionList(defectItems, '');
@@ -396,8 +406,10 @@ async function extractDeveloperReportData(type, targetDate) {
 	);
 
 	const demands = [];
+	const defectToDemands = [];
 	const ppDefects = [];
 	const nonPpDefects = [];
+	const noCommitDefects = [];
 	const commits = [];
 	const reviews = [];
 	const migrations = [];
@@ -464,24 +476,32 @@ async function extractDeveloperReportData(type, targetDate) {
 			pushUnique(demands, record, formatBaseItem);
 		}
 
+		if (record.category === '缺陷转需求' && allowedTaskStatuses.has(record.taskStatus)) {
+			pushUnique(defectToDemands, record, formatBaseItem);
+		}
+
 		if (
-			(isDemand || record.category.includes('缺陷')) &&
-			record.category !== '缺陷转需求' &&
+			(isDemand || record.category === '缺陷转需求' || record.category.includes('缺陷')) &&
+			!record.category.startsWith('代码迁移-') &&
 			completedTaskStatuses.has(record.taskStatus)
 		) {
 			pushUnique(achievedItems, record, formatBaseItem);
 		}
 
-		if (record.category.includes('缺陷') && record.category !== '缺陷转需求') {
-			const targetList = /^QXWT-/i.test(record.ticketNo) ? ppDefects : nonPpDefects;
-			pushUnique(targetList, record, formatBaseItem);
+		if (record.category.includes('缺陷') && record.category !== '缺陷转需求' && !record.category.startsWith('代码迁移-')) {
+			if (isNoCommitDefect(record.category)) {
+				pushUnique(noCommitDefects, record, formatNoCommitDefectLine);
+			} else {
+				const targetList = /^QXWT-/i.test(record.ticketNo) ? ppDefects : nonPpDefects;
+				pushUnique(targetList, record, formatBaseItem);
+			}
 		}
 
 		if (
 			!isEmpty(record.commitNo) &&
 			!isEmpty(record.commitInfo) &&
 			record.category !== '项目打包（只作为打包登记）' &&
-			record.category !== '代码迁移-一体化'
+			!record.category.startsWith('代码迁移-')
 		) {
 			pushUnique(commits, record, formatCommitLine);
 		}
@@ -499,8 +519,8 @@ async function extractDeveloperReportData(type, targetDate) {
 			pushUnique(reviews, record, formatReviewLine);
 		}
 
-		if (record.category === '代码迁移-一体化') {
-			pushUnique(migrations, record, (item) => formatOtherLine(item, '代码迁移-一体化'));
+		if (record.category.startsWith('代码迁移-')) {
+			pushUnique(migrations, record, (item) => formatOtherLine(item, item.category));
 		}
 
 		if (record.category === '项目打包（只作为打包登记）') {
@@ -512,8 +532,10 @@ async function extractDeveloperReportData(type, targetDate) {
 		startDate,
 		endDate,
 		demands,
+		defectToDemands,
 		ppDefects,
 		nonPpDefects,
+		noCommitDefects,
 		commits,
 		reviews,
 		migrations,
@@ -537,7 +559,7 @@ function buildReportMarkdown(type, reportData) {
 	let markdown = '';
 	markdown += `一、${periodLabel}工作内容：\n`;
 	markdown += `    1、需求开发：\n`;
-	markdown += buildSectionList(reportData.demands, '      ');
+	markdown += buildSectionList([...reportData.demands, ...reportData.defectToDemands], '      ');
 	markdown += `    2、缺陷修复\n`;
 	markdown += `       2.1（pp缺陷）\n`;
 	markdown += buildSectionList(reportData.ppDefects, '          ');
@@ -545,7 +567,11 @@ function buildReportMarkdown(type, reportData) {
 	markdown += buildSectionList(reportData.nonPpDefects, '          ');
 
 	markdown += `二、其他：\n`;
-	markdown += `    暂无\n`;
+	if (reportData.noCommitDefects.length > 0) {
+		markdown += buildSectionList(reportData.noCommitDefects, '    ');
+	} else {
+		markdown += `    暂无\n`;
+	}
 
 	markdown += `三、${getChineseMonth(reportData.startDate.getMonth() + 1)}月月度任务\n`;
 	markdown += `    暂无。\n`;
