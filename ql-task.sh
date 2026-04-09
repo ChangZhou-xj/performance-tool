@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
+if [ -n "${BASH_VERSION:-}" ]; then
+	set -Eeuo pipefail
+else
+	set -eu
+fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 LOG_DIR="$SCRIPT_DIR/data"
 mkdir -p "$LOG_DIR"
 LOG_FILE="$LOG_DIR/ql-task-$(date +%Y%m%d_%H%M%S).log"
 
-exec > >(tee -a "$LOG_FILE") 2>&1
+if [ -n "${BASH_VERSION:-}" ]; then
+	exec > >(tee -a "$LOG_FILE") 2>&1
+else
+	exec >>"$LOG_FILE" 2>&1
+fi
 
 on_err() {
 	local exit_code=$?
@@ -34,7 +42,9 @@ notify() {
 }
 
 trap notify EXIT
-trap on_err ERR
+if [ -n "${BASH_VERSION:-}" ]; then
+	trap on_err ERR
+fi
 
 run_step "执行日报生成" npm run report:day
 run_step "执行日报邮件发送" npm run send-email
