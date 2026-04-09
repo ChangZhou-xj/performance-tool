@@ -2,7 +2,6 @@
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 /**
  * Server酱推送函数
