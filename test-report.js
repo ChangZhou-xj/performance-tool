@@ -26,7 +26,9 @@ xlsx.utils.sheet_to_json = (sheet, opts) => {
   return originalSheetToJson(sheet, opts);
 };
 
-const { extractDeveloperReportData } = require('./generate-report-kf');
+const fs = require('fs');
+
+const { extractDeveloperReportData, generateReport } = require('./generate-report-kf');
 
 // ── 工具函数 ───────────────────────────────────────────────────────────────────
 
@@ -50,6 +52,7 @@ const HEADERS = [
   '登记人', '登记日期', '开发完成日期', '类别', '任务内容',
   '项目名称', '产品类型', '产品标识', 'A8单号、任务/问题列表编号',
   '提交编号', '提交信息', '任务状态', '需求等级',
+  '计划完成日期',
   '缺陷引出人员', '缺陷引出日期', '缺陷引出部门',
   '初审人', '初审日期', '终审人', '终审日期', '复核人', '复核日期',
 ];
@@ -186,6 +189,54 @@ async function testOtherUserFiltered() {
   assert(data === null || data.demands.length === 0, '其他用户的记录不进 demands');
 }
 
+async function testNextPlanSortedByPlannedFinish() {
+  console.log('\n【明日工作计划 — 按计划完成日期排序】');
+  mockSheetData = [
+    HEADERS,
+    makeRow({
+      '类别': '需求',
+      '任务内容': '已完成的锚点任务',
+      '任务状态': '开发完成',
+      '开发完成日期': '2026年4月6日',
+    }),
+    makeRow({
+      '类别': '需求',
+      '任务内容': '计划最晚的任务',
+      '任务状态': '进行中',
+      '计划完成日期': '2026年4月10日',
+      '开发完成日期': '2026年4月6日',
+    }),
+    makeRow({
+      '类别': '需求',
+      '任务内容': '计划最早的任务',
+      '任务状态': '进行中',
+      '计划完成日期': '2026年4月8日',
+      '开发完成日期': '2026年4月5日',
+    }),
+    makeRow({
+      '类别': '需求',
+      '任务内容': '未填写计划完成日期的任务',
+      '任务状态': '进行中',
+      '计划完成日期': '',
+      '开发完成日期': '2026年4月4日',
+    }),
+  ];
+
+  const filePath = await generateReport('day', new Date(2026, 3, 6));
+  const markdown = fs.readFileSync(filePath, 'utf-8');
+  const nextPlanSection = markdown.split('七、明日工作计划：\n')[1] || '';
+
+  const firstIndex = nextPlanSection.indexOf('计划最早的任务');
+  const secondIndex = nextPlanSection.indexOf('计划最晚的任务');
+  const thirdIndex = nextPlanSection.indexOf('未填写计划完成日期的任务');
+
+  assert(firstIndex !== -1, '计划最早的任务出现在明日工作计划中');
+  assert(secondIndex !== -1, '计划最晚的任务出现在明日工作计划中');
+  assert(thirdIndex !== -1, '未填写计划完成日期的任务出现在明日工作计划中');
+  assert(firstIndex < secondIndex, '较早计划完成日期的任务排在前面');
+  assert(secondIndex < thirdIndex, '未填写计划完成日期的任务排在最后');
+}
+
 // ── 执行所有测试 ───────────────────────────────────────────────────────────────
 
 (async () => {
@@ -197,6 +248,7 @@ async function testOtherUserFiltered() {
   await testCommitAndReview();
   await testDateFilter();
   await testOtherUserFiltered();
+  await testNextPlanSortedByPlannedFinish();
 
   console.log(`\n结果：${passed} 通过，${failed} 失败`);
   if (failed > 0) process.exit(1);

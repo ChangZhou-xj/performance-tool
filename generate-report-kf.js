@@ -289,6 +289,7 @@ function pushUnique(list, record, formatter) {
 	list.push({
 		key: record.key,
 		date: record.regDate,
+		plannedFinish: record.plannedFinish,
 		text: formatter(record),
 		projectName: record.projectName,
 		productType: record.productType,
@@ -307,10 +308,39 @@ function sortByDate(items) {
 	});
 }
 
-function buildSectionList(items, indent = '    ') {
+function sortByPlannedFinishPriority(items) {
+	return items.sort((a, b) => {
+		const aPlannedFinish = parseDate(a.plannedFinish);
+		const bPlannedFinish = parseDate(b.plannedFinish);
+
+		if (aPlannedFinish && bPlannedFinish) {
+			const plannedDiff = aPlannedFinish - bPlannedFinish;
+			if (plannedDiff !== 0) {
+				return plannedDiff;
+			}
+		} else if (aPlannedFinish || bPlannedFinish) {
+			return aPlannedFinish ? -1 : 1;
+		}
+
+		const aDate = parseDate(a.date);
+		const bDate = parseDate(b.date);
+		if (aDate && bDate) {
+			const dateDiff = aDate - bDate;
+			if (dateDiff !== 0) {
+				return dateDiff;
+			}
+		} else if (aDate || bDate) {
+			return aDate ? -1 : 1;
+		}
+
+		return a.text.localeCompare(b.text, 'zh-CN');
+	});
+}
+
+function buildSectionList(items, indent = '    ', sorter = sortByDate) {
 	if (!items.length) return `${indent}暂无\n`;
 	return (
-		sortByDate(items)
+		sorter(items)
 			.map((item, index) => `${indent}${index + 1}. ${item.text}`)
 			.join('\n') + '\n'
 	);
@@ -382,7 +412,7 @@ function buildWeekReportMarkdown(reportData) {
 	markdown += buildSectionList(defectItems, '');
 	markdown += '\n';
 	markdown += '未完成工作\n';
-	markdown += buildSectionList(nextPlanItems, '');
+	markdown += buildSectionList(nextPlanItems, '', sortByPlannedFinishPriority);
 
 	return markdown;
 }
@@ -586,7 +616,7 @@ function buildReportMarkdown(type, reportData) {
 	markdown += buildSectionList(achievedItems, '    ');
 
 	markdown += `七、${nextPlanLabel}工作计划：\n`;
-	markdown += buildSectionList(nextPlanItems, '    ');
+	markdown += buildSectionList(nextPlanItems, '    ', sortByPlannedFinishPriority);
 
 	return markdown;
 }
