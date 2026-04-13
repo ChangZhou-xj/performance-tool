@@ -183,16 +183,41 @@ function performanceValidateUrl() {
   );
 }
 /**
- * 清理dist目录
+ * 清理data目录中的日志和Markdown文件
  */
-function clearDist() {
+async function clearDataFiles() {
+  const dataPath = path.join(getBasePath(), 'data');
+
   try {
-    changeShellPath(path.join(getBasePath(), 'dist'));
-    execCommand('rm -rf !.gitkeep *');
-    changeShellPath(getBasePath());
+    const entries = await fsPromises.readdir(dataPath, { withFileTypes: true });
+    const filePaths = entries
+      .filter((entry) => {
+        if (!entry.isFile()) {
+          return false;
+        }
+
+        const ext = path.extname(entry.name).toLowerCase();
+        return ext === '.log' || ext === '.md';
+      })
+      .map((entry) => path.join(dataPath, entry.name));
+
+    await Promise.all(filePaths.map((filePath) => fsPromises.unlink(filePath)));
+    return filePaths;
   } catch (err) {
+    if (err.code === 'ENOENT') {
+      return [];
+    }
+
     console.error(err);
+    throw err;
   }
+}
+
+/**
+ * 兼容旧方法名
+ */
+async function clearDist() {
+  return clearDataFiles();
 }
 
 /**
@@ -478,6 +503,7 @@ module.exports = {
   generateHash,
   getWorkRecordPath,
   clearDist,
+  clearDataFiles,
   getCurrMonthData,
   filterBasicData,
   getTemplate,
