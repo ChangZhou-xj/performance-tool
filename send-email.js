@@ -6,6 +6,7 @@ const dayjs = require('dayjs');
 const EmailService = require('./service/email-service');
 const HolidayService = require('./service/holiday-service');
 const { extractDeveloperReportData } = require('./generate-report-kf');
+const { buildEmailMap } = require('./config/recipients');
 
 console.log('====================================');
 console.log('开始发送日报邮件');
@@ -32,33 +33,6 @@ const recipientConfig = {
   to: process.env.EMAIL_TO ? process.env.EMAIL_TO.split(',').map(e => e.trim()) : [], // 收件人列表
   cc: process.env.EMAIL_CC ? process.env.EMAIL_CC.split(',').map(e => e.trim()) : [], // 抄送列表
 };
-
-/**
- * 解析抄送人集合文件，返回 姓名 → 邮箱 的 Map
- * @param {string} filePath - 抄送人集合.md 路径
- * @returns {Map<string, string>}
- */
-function parseEmailRecipientMap(filePath) {
-  if (!fs.existsSync(filePath)) return new Map();
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const match = content.match(/邮箱范围：([^\n]+)/);
-  if (!match) return new Map();
-  const map = new Map();
-  const entries = match[1].split(';');
-  for (const entry of entries) {
-    const m = entry.trim().match(/^\*?([^<]+)<([^>]+)>/);
-    if (!m) continue;
-    const fullName = m[1].trim();
-    const email = m[2].trim();
-    map.set(fullName, email);
-    // 同时以去除括号内容的短名映射（如 "陈鑫（财信）" → "陈鑫"）
-    const shortName = fullName.replace(/[（(][^）)]*[）)]/g, '').trim();
-    if (shortName !== fullName && !map.has(shortName)) {
-      map.set(shortName, email);
-    }
-  }
-  return map;
-}
 
 /**
  * 根据报告数据和邮箱映射构建动态抄送人列表（仅缺陷引出人员）
@@ -165,8 +139,7 @@ async function sendDailyReportEmail() {
     console.log('找到日报文件:', reportFilePath);
 
     // 构建动态抄送（缺陷引出人员）
-    const recipientFilePath = path.join(__dirname, '抄送人集合.md');
-    const emailRecipientMap = parseEmailRecipientMap(recipientFilePath);
+    const emailRecipientMap = buildEmailMap();
     const reportData = await extractDeveloperReportData('day', new Date());
     const dynamicCc = buildDynamicCcList(reportData, emailRecipientMap);
     const finalCc = [...new Set([...recipientConfig.cc, ...dynamicCc])];

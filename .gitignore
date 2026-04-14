@@ -28,3 +28,4 @@ dist/*
 *.sw?
 data/
 *.xlsx
+.claude/*

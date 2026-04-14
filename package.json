@@ -5,7 +5,7 @@
   "scripts": {
     "clear": "node clear.js",
     "download-work-record": "node download-work-record.js",
-    "generate-performance": "node generate-performance-2026.js",
+    "generate-performance": "node download-work-record.js && node generate-performance-2026.js",
     "validate-performance": "node validate-performance.js",
     "report:day": "npm run download-work-record && node generate-report-kf.js day",
     "report:week": "npm run download-work-record && node generate-report-kf.js week",
