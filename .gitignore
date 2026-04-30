@@ -29,3 +29,4 @@ dist/*
 data/
 *.xlsx
 .claude/*
+.nyc_output/

@@ -512,4 +512,7 @@ module.exports = {
   performanceUrl,
   performanceValidateUrl,
   getExcludeMember,
+  normalizeString,
+  levenshteinDistance,
+  findBestColumnMatch,
 };
