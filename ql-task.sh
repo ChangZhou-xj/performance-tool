@@ -152,7 +152,8 @@ run_step() {
 
 send_notification() {
 	exit_code="$1"
-	status_text="成功"
+	status_override="${2:-}"
+	status_text="${status_override:-成功}"
 	if [ "$exit_code" -ne 0 ]; then
 		status_text="失败(${exit_code})"
 	fi
@@ -174,12 +175,41 @@ main() {
 	log_info "项目目录: $PROJECT_ROOT"
 	log_info "日志文件: $LOG_FILE"
 
+	log_info "检查是否工作日"
+	check_tmp_file="${TMPDIR:-/tmp}/ql-task-check.$$.$(date +%s).log"
+	if npm --prefix "$PROJECT_ROOT" run check-workday --silent > "$check_tmp_file" 2>&1; then
+		while IFS= read -r line || [ -n "$line" ]; do
+			log_cmd_output "$line"
+		done < "$check_tmp_file"
+		rm -f "$check_tmp_file"
+	else
+		check_status="$?"
+		while IFS= read -r line || [ -n "$line" ]; do
+			log_cmd_output "$line"
+		done < "$check_tmp_file"
+		rm -f "$check_tmp_file"
+
+		if [ "$check_status" -eq 2 ]; then
+			SKIP_REASON="非工作日"
+			log_info "今天不是工作日，跳过日报生成与邮件发送"
+			return 0
+		fi
+
+		log_error "工作日检查失败，立即停止，退出码: ${check_status}"
+		return "$check_status"
+	fi
+
 	run_step "执行日报生成" npm --prefix "$PROJECT_ROOT" run report:day || return "$?"
 	run_step "执行日报邮件发送" npm --prefix "$PROJECT_ROOT" run send-email || return "$?"
 	return 0
 }
 
+SKIP_REASON=""
 main
 EXIT_CODE="$?"
-send_notification "$EXIT_CODE"
+SKIP_STATUS_TEXT=""
+if [ -n "$SKIP_REASON" ] && [ "$EXIT_CODE" -eq 0 ]; then
+	SKIP_STATUS_TEXT="跳过(${SKIP_REASON})"
+fi
+send_notification "$EXIT_CODE" "$SKIP_STATUS_TEXT"
 exit "$EXIT_CODE"

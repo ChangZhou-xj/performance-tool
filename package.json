@@ -4,6 +4,7 @@
   "description": "绩效工具",
   "scripts": {
     "clear": "node clear.js",
+    "check-workday": "node check-workday.js",
     "download-work-record": "node download-work-record.js",
     "generate-performance": "node download-work-record.js && node generate-performance-2026.js",
     "validate-performance": "node validate-performance.js",
