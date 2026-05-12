@@ -114,8 +114,26 @@ async function extractData() {
 			colIndex.defectDetector !== -1 &&
 			String(row[colIndex.defectDetector]).trim() === USER_NAME &&
 			isCurrentMonth(row[colIndex.regDate] || '');
+		const cond6 =
+			colIndex.registrant !== -1 &&
+			colIndex.verifyDate !== -1 &&
+			String(row[colIndex.registrant]).trim() === USER_NAME &&
+			isCurrentMonth(row[colIndex.verifyDate] || '');
+		const cond7 =
+			(colIndex.reviewer !== -1 &&
+				colIndex.reviewDate !== -1 &&
+				String(row[colIndex.reviewer] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[colIndex.reviewDate] || '')) ||
+			(colIndex.finalReviewer !== -1 &&
+				colIndex.finalReviewDate !== -1 &&
+				String(row[colIndex.finalReviewer] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[colIndex.finalReviewDate] || '')) ||
+			(colIndex.verifier !== -1 &&
+				colIndex.verifyDate !== -1 &&
+				String(row[colIndex.verifier] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[colIndex.verifyDate] || ''));
 
-		if (!(cond1 || cond2 || cond3 || cond4 || cond5)) continue;
+		if (!(cond1 || cond2 || cond3 || cond4 || cond5 || cond6 || cond7)) continue;
 		filteredData.push(row);
 	}
 	console.info(`当前导出数据符合规范的一共${filteredData.length}条`);
@@ -206,30 +224,25 @@ async function processData() {
 		)
 			sheetConfig['代码提交记录'].data.push(row);
 
-		// 代码评审判定规则：
-		// 当登记人为当前用户时，且初审人/初审日期、终审人/终审日期、复核人/复核日期
-		// 这三组字段都存在且非空，则视为一次完整的代码评审记录，记入「代码评审」。
 		const isRegistrantUser = currUserStr === USER_NAME;
-		const allReviewFieldsPresent = [
-			'初审人',
-			'初审日期',
-			'终审人',
-			'终审日期',
-			'复核人',
-			'复核日期',
-		].every((key) => {
-			const idx = reviewUserCols[key];
-			return idx !== -1 && !isEmpty(row[idx]);
-		});
+		const isVerifyDateCurrentMonth =
+			reviewUserCols['复核日期'] !== -1 &&
+			isCurrentMonth(row[reviewUserCols['复核日期']] || '');
+		const hasAnyReviewInCurrentMonth =
+			(reviewUserCols['初审人'] !== -1 &&
+				reviewUserCols['初审日期'] !== -1 &&
+				String(row[reviewUserCols['初审人']] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[reviewUserCols['初审日期']] || '')) ||
+			(reviewUserCols['终审人'] !== -1 &&
+				reviewUserCols['终审日期'] !== -1 &&
+				String(row[reviewUserCols['终审人']] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[reviewUserCols['终审日期']] || '')) ||
+			(reviewUserCols['复核人'] !== -1 &&
+				reviewUserCols['复核日期'] !== -1 &&
+				String(row[reviewUserCols['复核人']] || '').trim() === USER_NAME &&
+				isCurrentMonth(row[reviewUserCols['复核日期']] || ''));
 
-		// 额外规则：如果初审人/终审人/复核人中任意一人是当前用户，且对应的日期在目标月（isCurrentMonth），也计入代码评审
-		const anyReviewByUser = (
-			(reviewUserCols['初审人'] !== -1 && String(row[reviewUserCols['初审人']] || '').trim() === USER_NAME && reviewUserCols['初审日期'] !== -1 && isCurrentMonth(row[reviewUserCols['初审日期']] || '')) ||
-			(reviewUserCols['终审人'] !== -1 && String(row[reviewUserCols['终审人']] || '').trim() === USER_NAME && reviewUserCols['终审日期'] !== -1 && isCurrentMonth(row[reviewUserCols['终审日期']] || '')) ||
-			(reviewUserCols['复核人'] !== -1 && String(row[reviewUserCols['复核人']] || '').trim() === USER_NAME && reviewUserCols['复核日期'] !== -1 && isCurrentMonth(row[reviewUserCols['复核日期']] || ''))
-		);
-
-		if ((isRegistrantUser && allReviewFieldsPresent) || anyReviewByUser) {
+		if ((isRegistrantUser && isVerifyDateCurrentMonth) || hasAnyReviewInCurrentMonth) {
 			sheetConfig['代码评审'].data.push(row);
 		}
 
@@ -475,7 +488,6 @@ async function processWorkbook(inputPath) {
 
 			headerRow.eachCell((cell, colNumber) => {
 				const header = cell.text.trim();
-				if (header.includes('AI使用截图')) aiCol = colNumber;
 				if (header === '登记人') currUserIndex = colNumber;
 				if (header === '初审意见') firstTrial = colNumber;
 				if (header === '终审意见') finalOpinion = colNumber;
@@ -538,6 +550,9 @@ async function processWorkbook(inputPath) {
 
 			// 引出缺陷（来自 leadingOutDefectsData）
 			if (leadingOutDefectsData && leadingOutDefectsData.length > 1) {
+				const registrantIndex = leadingOutDefectsData[0].findIndex(
+					(e) => e === '登记人',
+				);
 				const reasonIndex = leadingOutDefectsData[0].findIndex(
 					(e) => e === '缺陷描述及原因',
 				);
@@ -549,7 +564,9 @@ async function processWorkbook(inputPath) {
 					rowValues[type] = '引出缺陷';
 					rowValues[typeValueIndex] = -10;
 					rowValues[leaderIndex] = -10;
-					rowValues[describeIndex] = leadingOutDefectsData[i][reasonIndex];
+					rowValues[
+						describeIndex
+					] = `登记人:${leadingOutDefectsData[i][registrantIndex] || ''}\n登记时间：${leadingOutDefectsData[i][commitDateIndex] || ''}\n${leadingOutDefectsData[i][reasonIndex] || ''}`;
 					rowValues[dateIndex] = leadingOutDefectsData[i][commitDateIndex];
 					const insertedRow = worksheet.insertRow(2, rowValues, 'o');
 					insertedRow.eachCell((cell) => {
