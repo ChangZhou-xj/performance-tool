@@ -273,6 +273,23 @@ function formatNoCommitDefectLine(record) {
 	return `问题：${problem}  原因：${reason}`;
 }
 
+function formatInProgressDemand(record) {
+	const tags = [];
+	if (record.productId) tags.push(`【${record.productType}：${record.productId}】`);
+	if (record.projectName) tags.push(`【${record.projectName}】`);
+	tags.push(`【${record.category || '未分类'}】`);
+	tags.push('【开发中】');
+	if (record.demandLevel) tags.push(`【${record.demandLevel}】`);
+
+	const content = record.taskContent || record.commitInfo || '暂无内容';
+	const suffixParts = [];
+	if (record.ticketNo) suffixParts.push(record.ticketNo);
+	if (record.commitNo) suffixParts.push(`提交:${record.commitNo}`);
+	const suffix = suffixParts.length > 0 ? `【${suffixParts.join(' / ')}】` : '';
+
+	return `${tags.join('')}${content}${suffix}（进度80%）`;
+}
+
 function formatOtherLine(record, label) {
 	const tags = [`【${label}】`];
 	if (record.productId) tags.unshift(`【${record.productType}：${record.productId}】`);
@@ -446,6 +463,7 @@ async function extractDeveloperReportData(type, targetDate) {
 	const packs = [];
 	const achievedItems = [];
 	const nextPlanItems = [];
+	const inProgressDemands = [];
 	const monthlyDemandProgress = {
 		month: monthStartDate.getMonth() + 1,
 		completedCount: 0,
@@ -496,6 +514,9 @@ async function extractDeveloperReportData(type, targetDate) {
 
 		if (inProgressTaskStatuses.has(record.taskStatus)) {
 			pushUnique(nextPlanItems, record, formatNextPlanItem);
+			if (isDemand) {
+				pushUnique(inProgressDemands, record, formatInProgressDemand);
+			}
 		}
 
 		if (!isDateInRange(regDate, startDate, endDate)) {
@@ -572,6 +593,7 @@ async function extractDeveloperReportData(type, targetDate) {
 		packs,
 		achievedItems,
 		nextPlanItems,
+		inProgressDemands,
 		monthlyDemandProgress,
 	};
 }
@@ -585,11 +607,14 @@ function buildReportMarkdown(type, reportData) {
 	const nextPlanLabel = type === 'day' ? '明日' : type === 'week' ? '下周' : '下月';
 	const achievedItems = collectUniqueItems(reportData.achievedItems);
 	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
+	// 进行中的需求按计划完成日期排序，取前2条作为需求板块的备选
+	const topInProgressDemands = sortByPlannedFinishPriority([...reportData.inProgressDemands]).slice(0, 2);
 
 	let markdown = '';
 	markdown += `一、${periodLabel}工作内容：\n`;
 	markdown += `    1、需求开发：\n`;
-	markdown += buildSectionList([...reportData.demands, ...reportData.defectToDemands], '      ');
+	const demandsForReport = [...reportData.demands, ...reportData.defectToDemands];
+	markdown += buildSectionList(demandsForReport.length > 0 ? demandsForReport : topInProgressDemands, '      ');
 	markdown += `    2、缺陷修复\n`;
 	markdown += `       2.1（pp缺陷）\n`;
 	markdown += buildSectionList(reportData.ppDefects, '          ');
@@ -657,6 +682,8 @@ async function generateReport(type, targetDate) {
 		reportData.reviews.length,
 		reportData.migrations.length,
 		reportData.packs.length,
+		reportData.noCommitDefects.length,
+		reportData.nextPlanItems.length,
 	].reduce((sum, value) => sum + value, 0);
 
 	if (totalCount === 0) {
