@@ -13,6 +13,7 @@
     "send-email": "node send-email.js",
     "report:project": "npm run download-work-record && node generate-project-email.js",
     "send-project-email": "npm run download-work-record && node generate-project-email.js --send",
+    "ql:project": "bash ql-task-project.sh",
     "test-holiday": "node test-holiday.js",
     "test": "mocha test/*.test.js",
     "test:coverage": "nyc --reporter=text npm run test"
