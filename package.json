@@ -11,6 +11,8 @@
     "report:day": "npm run download-work-record && node generate-report-kf.js day",
     "report:week": "npm run download-work-record && node generate-report-kf.js week",
     "send-email": "node send-email.js",
+    "report:project": "npm run download-work-record && node generate-project-email.js",
+    "send-project-email": "npm run download-work-record && node generate-project-email.js --send",
     "test-holiday": "node test-holiday.js",
     "test": "mocha test/*.test.js",
     "test:coverage": "nyc --reporter=text npm run test"

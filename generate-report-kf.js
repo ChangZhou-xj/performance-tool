@@ -762,4 +762,13 @@ module.exports = {
 	generateReport,
 	generatePerformanceStats,
 	extractDeveloperReportData,
+	// 共享函数（供 generate-project-email.js 等脚本复用）
+	getColumnIndexMap,
+	buildRecord,
+	parseDate,
+	isDateInRange,
+	getText,
+	formatDateCN,
+	allowedTaskStatuses,
+	completedTaskStatuses,
 };
