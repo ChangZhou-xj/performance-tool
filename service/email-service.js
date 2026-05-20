@@ -269,6 +269,29 @@ class EmailService {
   }
 
   /**
+   * 将 Markdown 链接转换为 HTML <a> 标签，其余内容做 HTML 转义
+   * @param {string} text - 包含可能 Markdown 链接的文本
+   * @returns {string} 处理后的 HTML
+   */
+  renderInlineMarkdown(text) {
+    // 匹配 [label](url) 格式
+    const linkPattern = /\[([^\]]+)\]\(([^)]+)\)/g;
+    let result = '';
+    let lastIndex = 0;
+    let match;
+    while ((match = linkPattern.exec(text)) !== null) {
+      // 先转义链接前的普通文本
+      result += this.escapeHtml(text.slice(lastIndex, match.index));
+      // 链接部分：label 转义，url 不转义（已是合法 URL）
+      result += `<a href="${match[2]}" target="_blank">${this.escapeHtml(match[1])}</a>`;
+      lastIndex = match.index + match[0].length;
+    }
+    // 转义剩余文本
+    result += this.escapeHtml(text.slice(lastIndex));
+    return result;
+  }
+
+  /**
    * 将文本内容转换为HTML
    * @param {string} content - 文本内容
    * @returns {string} HTML内容
@@ -287,51 +310,30 @@ class EmailService {
         continue;
       }
 
-      // 处理章节标题（一、二、三等）
-      if (/^[一二三四五六七八九十]、/.test(trimmedLine)) {
-        currentSection = trimmedLine;
-        html += `<div class="section-title">${this.escapeHtml(trimmedLine)}</div>`;
-        continue;
-      }
+    // 处理章节标题（一、二、三等）
+    if (/^[一二三四五六七八九十]、/.test(trimmedLine)) {
+      currentSection = trimmedLine;
+      html += `<div class="section-title">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+      continue;
+    }
 
-      // 处理数字编号的工作项（1、2、3、等）
-      if (/^\d+[、\.]/.test(trimmedLine)) {
-        // 判断当前是否在"二、其他"或"六、今日工作目标是否达成"章节
-        const inTargetSection = currentSection.includes('二、其他') ||
-                                currentSection.includes('六、今日工作目标是否达成');
+    // 处理数字编号的工作项（1、2、3、等）
+    if (/^\d+[、\.]/.test(trimmedLine)) {
+      html += `<div class="work-item">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+      continue;
+    }
 
-        if (inTargetSection && trimmedLine.includes('【')) {
-          // 对包含标签的工作项进行美化处理
-          const processedLine = this.processTagsInLine(trimmedLine);
-          html += `<div class="work-item">${processedLine}</div>`;
-        } else {
-          // 普通文本
-          html += `<div class="normal-text">${this.escapeHtml(trimmedLine)}</div>`;
-        }
-        continue;
-      }
+    // 处理"暂无"
+    if (trimmedLine === '暂无' || trimmedLine === '暂无。') {
+      html += `<div class="empty-text">${this.escapeHtml(trimmedLine)}</div>`;
+      continue;
+    }
 
-      // 处理"暂无"
-      if (trimmedLine === '暂无' || trimmedLine === '暂无。') {
-        html += `<div class="empty-text">${this.escapeHtml(trimmedLine)}</div>`;
-        continue;
-      }
-
-      // 处理其他普通文本（包括缩进的文本）
-      html += `<div class="normal-text">${this.escapeHtml(trimmedLine)}</div>`;
+    // 处理其他普通文本（包括缩进的文本）
+    html += `<div class="normal-text">${this.renderInlineMarkdown(trimmedLine)}</div>`;
     }
 
     return html;
-  }
-
-  /**
-   * 处理行中的标签
-   * @param {string} line - 文本行
-   * @returns {string} 处理后的HTML
-   */
-  processTagsInLine(line) {
-    // 直接返回转义后的文本，不做标签处理
-    return this.escapeHtml(line);
   }
 
   /**

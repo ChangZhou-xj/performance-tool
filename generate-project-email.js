@@ -132,18 +132,10 @@ function extractProjectData(targetDate) {
  * @returns {string} 格式化后的文本
  */
 function formatTicketLine(record) {
-	const content = record.commitInfo || record.taskContent || '暂无内容';
-	const suffix = record.ticketNo ? `【${record.ticketNo}】` : '';
-	return `${content}${suffix}`;
-}
-
-/**
- * 格式化迁移项
- * @param {object} record - 工作记录
- * @returns {string} 格式化后的文本
- */
-function formatMigrationLine(record) {
-	const content = record.commitInfo || record.taskContent || '暂无内容';
+	const parts = [];
+	if (record.taskContent) parts.push(record.taskContent);
+	if (record.commitInfo && record.commitInfo !== record.taskContent) parts.push(record.commitInfo);
+	const content = parts.length > 0 ? parts.join(' - ') : '暂无内容';
 	const suffix = record.ticketNo ? `【${record.ticketNo}】` : '';
 	return `${content}${suffix}`;
 }
@@ -156,54 +148,80 @@ function formatMigrationLine(record) {
 function buildProjectEmailMarkdown(projectDataMap) {
 	const chineseNumerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 
-	let markdown = '';
-	markdown += '尊敬的领导、同事们：\n\n';
+	const lines = [];
+	lines.push('尊敬的领导、同事们：');
+	lines.push('');
 
 	let projectIndex = 0;
 	for (const [displayName, projectData] of projectDataMap) {
 		projectIndex++;
 		const numeral = chineseNumerals[projectIndex - 1] || String(projectIndex);
 		const project = projectData.project;
-		let projectOnlineDoc = '无';
+		const newCount = projectData.todayNewItems.length;
+		const processedCount = projectData.todayProcessedItems.length;
+		const unresolvedCount = projectData.unresolvedItems.length;
+		const hasActivity = newCount > 0 || processedCount > 0;
+
+		// 项目标题
+		lines.push(`${numeral}、${displayName}`);
+
+		// 在线文档
 		if (project.onlineDocUrl && project.onlineDocUrl.url) {
-			projectOnlineDoc = `[${project.onlineDocUrl.label}](${project.onlineDocUrl.url})`;
+			lines.push(`  问题单在线文档：[${project.onlineDocUrl.label}](${project.onlineDocUrl.url})`);
+		} else {
+			lines.push('  问题单在线文档：无');
 		}
 
-		markdown += `  ${numeral}、${displayName}\n`;
+		// 分支信息
+		lines.push(`  后端分支：${project.backendBranch}`);
+		lines.push(`  前端分支：pc端：${project.frontendBranch.pc}；移动端：${project.frontendBranch.mobile}`);
 
-		// 问题单在线文档
-		markdown += `    问题单在线文档：${projectOnlineDoc}\n`;
+		// 无数据项目：折叠为一行摘要
+		if (!hasActivity && unresolvedCount === 0) {
+			lines.push('  今日无新增/处理，无剩余未解决单据');
+			lines.push('');
+			continue;
+		}
 
-		// 后端分支
-		markdown += `    后端分支：${project.backendBranch}\n`;
+		// 数据摘要行
+		lines.push(`  今日新增单据：${newCount} | 今日处理单据：${processedCount} | 剩余未解决单据（共计）：${unresolvedCount}`);
 
-		// 前端分支
-		markdown += `    前端分支：pc端：${project.frontendBranch.pc}；移动端：${project.frontendBranch.mobile}\n\n`;
-
-		// 今日新增单据
-		markdown += `    今日新增单据：${projectData.todayNewItems.length}\n`;
-
-		// 今日处理单据
-		markdown += `    今日处理单据：${projectData.todayProcessedItems.length}\n`;
-
-		// 处理单据明细
-		if (projectData.todayProcessedItems.length > 0) {
-			projectData.todayProcessedItems.forEach((record, idx) => {
-				markdown += `      ${idx + 1}、${formatTicketLine(record)}\n`;
+		// 今日新增明细
+		if (newCount > 0) {
+			projectData.todayNewItems.forEach((record, idx) => {
+				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
 			});
 		}
 
-		markdown += '\n';
+		// 今日处理明细
+		if (processedCount > 0) {
+			if (newCount > 0) lines.push('');
+			projectData.todayProcessedItems.forEach((record, idx) => {
+				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
+			});
+		}
 
-		// 剩余未解决单据（共计）
-		markdown += `\n    剩余未解决单据（共计）：${projectData.unresolvedItems.length}\n\n`;
+		// 剩余未解决明细（最多显示5条，避免过长）
+		if (unresolvedCount > 0) {
+			if (hasActivity) lines.push('');
+			const showCount = Math.min(unresolvedCount, 5);
+			for (let i = 0; i < showCount; i++) {
+				lines.push(`    ${i + 1}、${formatTicketLine(projectData.unresolvedItems[i])}`);
+			}
+			if (unresolvedCount > 5) {
+				lines.push(`    ...及其他 ${unresolvedCount - 5} 条`);
+			}
+		}
+
+		lines.push('');
 	}
 
-	markdown += '  后续我将持续跟进各工单处理进度，确保按时保质保量完成。如有问题，敬请各位领导、同事指正。\n\n';
-	markdown += '  祝：工作顺利，事业向上。\n';
-	markdown += `   ${DEPARTMENT}：${USER_NAME}\n`;
+	lines.push('后续我将持续跟进各工单处理进度，确保按时保质保量完成。如有问题，敬请各位领导、同事指正。');
+	lines.push('');
+	lines.push('祝：工作顺利，事业向上。');
+	lines.push(`${DEPARTMENT}：${USER_NAME}`);
 
-	return markdown;
+	return lines.join('\n');
 }
 
 /**
