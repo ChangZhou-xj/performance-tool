@@ -183,34 +183,28 @@ function buildProjectEmailMarkdown(projectDataMap) {
 			continue;
 		}
 
-		// 数据摘要行
-		lines.push(`  今日新增单据：${newCount} | 今日处理单据：${processedCount} | 剩余未解决单据（共计）：${unresolvedCount}`);
-
-		// 今日新增明细
+		// 今日新增
+		lines.push(`  今日新增单据：${newCount}`);
 		if (newCount > 0) {
 			projectData.todayNewItems.forEach((record, idx) => {
 				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
 			});
 		}
 
-		// 今日处理明细
+		// 今日处理
+		lines.push(`  今日处理单据：${processedCount}`);
 		if (processedCount > 0) {
-			if (newCount > 0) lines.push('');
 			projectData.todayProcessedItems.forEach((record, idx) => {
 				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
 			});
 		}
 
-		// 剩余未解决明细（最多显示5条，避免过长）
+		// 剩余未解决
+		lines.push(`  剩余未解决单据（共计）：${unresolvedCount}`);
 		if (unresolvedCount > 0) {
-			if (hasActivity) lines.push('');
-			const showCount = Math.min(unresolvedCount, 5);
-			for (let i = 0; i < showCount; i++) {
-				lines.push(`    ${i + 1}、${formatTicketLine(projectData.unresolvedItems[i])}`);
-			}
-			if (unresolvedCount > 5) {
-				lines.push(`    ...及其他 ${unresolvedCount - 5} 条`);
-			}
+			projectData.unresolvedItems.forEach((record, idx) => {
+				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
+			});
 		}
 
 		lines.push('');
