@@ -12,53 +12,9 @@ const A8_BASE_URL = process.env.A8_BASE_URL || 'http://120.35.0.67:28101/';
 const A8_LOGIN_URL = process.env.A8_LOGIN_URL || 'http://120.35.0.67:28101/seeyon/main.do?method=main';
 const A8_USERNAME = process.env.A8_USERNAME || '1003854';
 const A8_PASSWORD = process.env.A8_PASSWORD || 'zxjqwe@621';
-const CHROMIUM_PATH = '/home/ubuntu/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome';
 
 // Python 脚本路径
 const SCRIPT_DIR = path.join(__dirname, '..', 'scripts');
-
-/**
- * 查询单个工单的处理人信息
- * @param {string} ticketNo - 工单编号，如 KFXQ-CX-2026032700129
- * @returns {Promise<object|null>} 工单信息 { proposers, developers, currentHandlers, currentNode }
- */
-async function queryWorkorder(ticketNo) {
-  if (!ticketNo || !ticketNo.match(/^(KFXQ|QXWT)-CX-\d+$/)) {
-    return null;
-  }
-
-  const scriptPath = path.join(SCRIPT_DIR, 'a8-query-workorder.py');
-  const args = JSON.stringify({ ticketNo, baseUrl: A8_BASE_URL, loginUrl: A8_LOGIN_URL, username: A8_USERNAME, password: A8_PASSWORD, chromiumPath: CHROMIUM_PATH });
-
-  try {
-    const result = execSync(`python3 "${scriptPath}" '${args.replace(/'/g, "'\\''")}'`, {
-      timeout: 120000,
-      encoding: 'utf-8',
-      maxBuffer: 10 * 1024 * 1024,
-    });
-
-    // 解析输出，提取 JSON 结果
-    const lines = result.trim().split('\n');
-    // 查找最后一个 JSON 行（RESULT: 前缀）
-    for (let i = lines.length - 1; i >= 0; i--) {
-      const line = lines[i].trim();
-      if (line.startsWith('RESULT:')) {
-        const jsonStr = line.substring(7).trim();
-        return JSON.parse(jsonStr);
-      }
-    }
-    // 如果没有 RESULT: 前缀，尝试解析最后一行
-    const lastLine = lines[lines.length - 1].trim();
-    if (lastLine.startsWith('{')) {
-      return JSON.parse(lastLine);
-    }
-    console.warn(`⚠️ A8 查询 ${ticketNo}: 无法解析输出`);
-    return null;
-  } catch (err) {
-    console.warn(`⚠️ A8 查询 ${ticketNo} 失败: ${err.message}`);
-    return null;
-  }
-}
 
 /**
  * 批量查询多个工单的处理人信息
@@ -83,7 +39,6 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
     loginUrl: A8_LOGIN_URL,
     username: A8_USERNAME,
     password: A8_PASSWORD,
-    chromiumPath: CHROMIUM_PATH,
   });
 
   try {
@@ -124,7 +79,7 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
 /**
  * 格式化处理人信息为简短文本
  * @param {object} info - 工单信息
- * @returns {string} 如 "处理人：张三" 或 "提出人：李四，当前处理：张三"
+ * @returns {string} 如 "开发：张三，当前处理：李四"
  */
 function formatHandlerInfo(info) {
   if (!info) return '';
@@ -143,7 +98,6 @@ function formatHandlerInfo(info) {
 }
 
 module.exports = {
-  queryWorkorder,
   batchQueryWorkorders,
   formatHandlerInfo,
 };

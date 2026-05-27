@@ -19,6 +19,7 @@ const {
 	allowedTaskStatuses,
 } = require('./generate-report-kf');
 const projectConfig = require('./config/project-config');
+const { batchQueryWorkorders, formatHandlerInfo } = require('./service/a8-service');
 
 /**
  * 根据项目名称匹配到项目配置
@@ -129,23 +130,33 @@ function extractProjectData(targetDate) {
 /**
  * 格式化单据明细行
  * @param {object} record - 工作记录
+ * @param {Map} [a8InfoMap] - A8 工单信息映射
  * @returns {string} 格式化后的文本
  */
-function formatTicketLine(record) {
+function formatTicketLine(record, a8InfoMap) {
 	const parts = [];
 	if (record.taskContent) parts.push(record.taskContent);
 	if (record.commitInfo && record.commitInfo !== record.taskContent) parts.push(record.commitInfo);
 	const content = parts.length > 0 ? parts.join(' - ') : '暂无内容';
 	const suffix = record.ticketNo ? `【${record.ticketNo}】` : '';
-	return `${content}${suffix}`;
+
+	// 追加 A8 处理人信息
+	let handlerText = '';
+	if (record.ticketNo && a8InfoMap) {
+		const a8Info = a8InfoMap.get(record.ticketNo);
+		handlerText = formatHandlerInfo(a8Info);
+	}
+
+	return handlerText ? `${content}${suffix} ${handlerText}` : `${content}${suffix}`;
 }
 
 /**
  * 生成项目邮件 Markdown 内容
  * @param {Map} projectDataMap - 按项目分组的数据
+ * @param {Map} [a8InfoMap] - A8 工单信息映射
  * @returns {string} Markdown 内容
  */
-function buildProjectEmailMarkdown(projectDataMap) {
+function buildProjectEmailMarkdown(projectDataMap, a8InfoMap) {
 	const chineseNumerals = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十'];
 
 	const lines = [];
@@ -187,7 +198,7 @@ function buildProjectEmailMarkdown(projectDataMap) {
 		lines.push(`  今日新增单据：${newCount}`);
 		if (newCount > 0) {
 			projectData.todayNewItems.forEach((record, idx) => {
-				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
+				lines.push(`    ${idx + 1}、${formatTicketLine(record, a8InfoMap)}`);
 			});
 		}
 
@@ -195,7 +206,7 @@ function buildProjectEmailMarkdown(projectDataMap) {
 		lines.push(`  今日处理单据：${processedCount}`);
 		if (processedCount > 0) {
 			projectData.todayProcessedItems.forEach((record, idx) => {
-				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
+				lines.push(`    ${idx + 1}、${formatTicketLine(record, a8InfoMap)}`);
 			});
 		}
 
@@ -203,7 +214,7 @@ function buildProjectEmailMarkdown(projectDataMap) {
 		lines.push(`  剩余未解决单据（共计）：${unresolvedCount}`);
 		if (unresolvedCount > 0) {
 			projectData.unresolvedItems.forEach((record, idx) => {
-				lines.push(`    ${idx + 1}、${formatTicketLine(record)}`);
+				lines.push(`    ${idx + 1}、${formatTicketLine(record, a8InfoMap)}`);
 			});
 		}
 
@@ -236,11 +247,26 @@ function buildOutputFilePath(targetDate) {
 }
 
 /**
+ * 从项目数据中收集剩余未解决单据的工单号
+ * @param {Map} projectDataMap - 按项目分组的数据
+ * @returns {string[]} 去重后的工单号列表
+ */
+function collectTicketNos(projectDataMap) {
+	const ticketNos = new Set();
+	for (const [, projectData] of projectDataMap) {
+		for (const record of projectData.unresolvedItems) {
+			if (record.ticketNo) ticketNos.add(record.ticketNo);
+		}
+	}
+	return [...ticketNos];
+}
+
+/**
  * 生成项目问题汇报
  * @param {Date} targetDate - 目标日期
- * @returns {string|null} 生成的文件路径
+ * @returns {Promise<string|null>} 生成的文件路径
  */
-function generateProjectReport(targetDate) {
+async function generateProjectReport(targetDate) {
 	const projectDataMap = extractProjectData(targetDate);
 	if (!projectDataMap) {
 		console.warn('⚠️ 未找到工作记录数据');
@@ -265,7 +291,18 @@ function generateProjectReport(targetDate) {
 		return null;
 	}
 
-	const markdown = buildProjectEmailMarkdown(projectDataMap);
+	// 收集今日新增+今日处理的工单号，批量查询 A8
+	let a8InfoMap = new Map();
+	const ticketNos = collectTicketNos(projectDataMap);
+	if (ticketNos.length > 0) {
+		console.log(`🔍 查询 A8 工单处理人信息（${ticketNos.length} 个工单）...`);
+		a8InfoMap = await batchQueryWorkorders(ticketNos, (current, total, ticketNo) => {
+			console.log(`  ✓ [${current}/${total}] ${ticketNo}`);
+		});
+		console.log(`✅ A8 查询完成，获取 ${a8InfoMap.size} 个工单信息`);
+	}
+
+	const markdown = buildProjectEmailMarkdown(projectDataMap, a8InfoMap);
 	const filePath = buildOutputFilePath(targetDate);
 	fs.writeFileSync(filePath, markdown, 'utf-8');
 
@@ -393,7 +430,7 @@ async function main() {
 		}
 	}
 
-	const reportFilePath = generateProjectReport(targetDate);
+	const reportFilePath = await generateProjectReport(targetDate);
 	if (!reportFilePath) {
 		console.log('未生成报告，跳过邮件发送');
 		return;
@@ -416,4 +453,6 @@ module.exports = {
 	buildProjectEmailMarkdown,
 	generateProjectReport,
 	matchProject,
+	collectTicketNos,
+	formatTicketLine,
 };
