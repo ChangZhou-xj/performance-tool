@@ -97,7 +97,45 @@ function formatHandlerInfo(info) {
   return parts.length > 0 ? parts.join('，') : '';
 }
 
+/**
+ * 抓包模式：登录 A8 并打开一个工单，记录所有 HTTP 请求
+ * @param {string} ticketNo - 要抓包的工单号
+ * @returns {Promise<Array>} 网络请求日志
+ */
+async function captureA8Requests(ticketNo) {
+  const scriptPath = path.join(SCRIPT_DIR, 'a8-batch-query.py');
+  const args = JSON.stringify({
+    mode: 'capture',
+    ticketNos: [ticketNo],
+    baseUrl: A8_BASE_URL,
+    loginUrl: A8_LOGIN_URL,
+    username: A8_USERNAME,
+    password: A8_PASSWORD,
+  });
+
+  try {
+    const result = execSync(`python3 "${scriptPath}" '${args.replace(/'/g, "'\\''")}'`, {
+      timeout: 120000,
+      encoding: 'utf-8',
+      maxBuffer: 50 * 1024 * 1024,
+    });
+
+    const lines = result.trim().split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (trimmed.startsWith('CAPTURE:')) {
+        return JSON.parse(trimmed.substring(8));
+      }
+    }
+    return [];
+  } catch (err) {
+    console.warn(`⚠️ A8 抓包失败: ${err.message}`);
+    return [];
+  }
+}
+
 module.exports = {
   batchQueryWorkorders,
   formatHandlerInfo,
+  captureA8Requests,
 };
