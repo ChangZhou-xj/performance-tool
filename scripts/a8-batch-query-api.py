@@ -290,8 +290,179 @@ class A8APIClient:
             return None
         return resp.text
 
+    def get_workflow_diagram(self, summary_html):
+        """获取流程视图 iframe 的 HTML 内容
+
+        Playwright 版本通过点击"流程"tab 加载 workflow iframe，
+        HTTP 版本直接请求流程图 URL。
+
+        流程图 URL 格式: /seeyon/workflow/designer.do?method=showDiagram&...
+        需要从 summary HTML 中提取相关参数。
+
+        Args:
+            summary_html: summary 页面 HTML
+
+        Returns:
+            str|None: 流程图 HTML
+        """
+        # 从 summary HTML 中提取流程图 iframe 的 URL
+        # 格式: <iframe src="/seeyon/workflow/designer.do?method=showDiagram&processId=xxx&caseId=xxx&...">
+        workflow_pattern = re.compile(
+            r'src="([^"]*workflow/designer\.do\?[^"]*showDiagram[^"]*)"',
+            re.IGNORECASE
+        )
+        match = workflow_pattern.search(summary_html)
+        if not match:
+            # 降级：尝试从 JS 变量中拼凑流程图 URL
+            # summary 页面中可能包含 processId, caseId 等参数
+            process_id = None
+            case_id = None
+            for var_pattern, var_name in [
+                (r'var\s+processId\s*=\s*["\']([^"\']+)["\']', 'processId'),
+                (r'["\']processId["\']\s*:\s*["\']([^"\']+)["\']', 'processId'),
+                (r'var\s+caseId\s*=\s*["\']([^"\']+)["\']', 'caseId'),
+                (r'["\']caseId["\']\s*:s*["\']([^"\']+)["\']', 'caseId'),
+            ]:
+                m = re.search(var_pattern, summary_html)
+                if m:
+                    if var_name == 'processId':
+                        process_id = m.group(1)
+                    elif var_name == 'caseId':
+                        case_id = m.group(1)
+
+            if process_id and case_id:
+                url = f"{self.base_url}/seeyon/workflow/designer.do?method=showDiagram"
+                params = {
+                    'processId': process_id,
+                    'caseId': case_id,
+                }
+                try:
+                    resp = self.session.get(url, params=params, timeout=30)
+                    if resp.status_code == 200:
+                        return resp.text
+                except Exception as e:
+                    print(f"WARN: 获取流程图异常: {e}", file=sys.stderr)
+            return None
+
+        workflow_url = match.group(1)
+        if not workflow_url.startswith('http'):
+            workflow_url = f"{self.base_url}{workflow_url}" if workflow_url.startswith('/') else f"{self.base_url}/{workflow_url}"
+
+        try:
+            resp = self.session.get(workflow_url, timeout=30)
+            if resp.status_code == 200:
+                return resp.text
+        except Exception as e:
+            print(f"WARN: 获取流程图异常: {e}", file=sys.stderr)
+        return None
+
+    def extract_handler_from_workflow_html(self, workflow_html):
+        """从流程图 HTML/SVG 中提取当前节点和处理人（模拟 Playwright 版逻辑）
+
+        Playwright 版本从 SVG 流程图中:
+        1. 找 <use href="#icon_..._current"> 标识当前节点
+        2. 从当前节点所在 <g> 元素的 <text> 提取节点名
+        3. 从流程文本中，当前节点后面紧跟的人名即为处理人
+
+        HTTP 版本解析流程图 HTML 中的 SVG，实现相同逻辑。
+
+        Args:
+            workflow_html: 流程图页面 HTML
+
+        Returns:
+            dict|None: {currentNode, currentHandler}
+        """
+        result = {}
+        current_node = ''
+
+        # 方法1: 从 SVG 中找当前节点（<use> 元素 href 含 "current"）
+        # 找所有 <use> 标签，检查 href/xlink:href 是否含 "current"
+        use_pattern = re.compile(
+            r'<use[^>]*(?:xlink:href|href)=["\']([^"\']*current[^"\']*)["\'][^>]*>',
+            re.IGNORECASE
+        )
+        for use_match in use_pattern.finditer(workflow_html):
+            # 找包含此 <use> 的 <g> 元素，提取 <text> 内容
+            use_pos = use_match.start()
+            # 向前找最近的 <g> 开始标签
+            g_start = workflow_html.rfind('<g', 0, use_pos)
+            if g_start == -1:
+                continue
+            # 向后找对应的 </g>
+            g_end = workflow_html.find('</g>', use_pos)
+            if g_end == -1:
+                g_end = len(workflow_html)
+            g_content = workflow_html[g_start:g_end + 4]
+
+            # 提取 <text> 内容
+            text_pattern = re.compile(r'<text[^>]*>([^<]*)</text>', re.DOTALL)
+            for text_match in text_pattern.finditer(g_content):
+                text = text_match.group(1).strip()
+                if not text:
+                    continue
+                # 去掉 SVG 重复文本（A8 SVG text 会有两份，如"开发人员开发中开发人员开发中"）
+                half = text[:len(text) // 2 + len(text) % 2]
+                if text == half + half:
+                    text = half
+                # 跳过 [审批-xxx] 类的组织标签
+                if re.match(r'^\[审批', text):
+                    continue
+                if text:
+                    current_node = text
+            if current_node:
+                break
+
+        if current_node:
+            result['currentNode'] = current_node
+
+        # 方法2: 从流程文本中提取节点和人名列表，找当前节点后面的人名
+        # Playwright 版本从 document.body.innerText 获取文本行
+        # HTTP 版本从 HTML 中提取文本内容
+        body_text = re.sub(r'<[^>]+>', '\n', workflow_html)  # 去掉 HTML 标签
+        body_text = re.sub(r'&[a-zA-Z]+;', ' ', body_text)   # 去掉 HTML 实体
+        lines = [l.strip() for l in body_text.split('\n') if l.strip()]
+        # 过滤无关行
+        nodes = []
+        for line in lines:
+            if line == '流程预测' or re.match(r'^\[审批', line) or re.match(r'^\d+%$', line):
+                continue
+            nodes.append(line)
+
+        # 找当前节点在列表中的位置，向后找人名
+        current_handler = ''
+        if current_node:
+            try:
+                idx = nodes.index(current_node)
+            except ValueError:
+                # 模糊匹配：当前节点名可能是列表中某项的子串
+                idx = -1
+                for i, n in enumerate(nodes):
+                    if current_node in n or n in current_node:
+                        idx = i
+                        break
+            if idx >= 0:
+                # 人名特征: 2-4个中文字符，或含括号(如"黄圣茂(博思软件)")
+                # 不是节点名(不含: 处理、验证、确认、评估、发起、开发、支持、人员)
+                for i in range(idx + 1, len(nodes)):
+                    name = nodes[i]
+                    if not re.search(r'处理|验证|确认|评估|发起|开发|支持|人员|一线|节点', name):
+                        current_handler = name
+                        break
+
+        # 降级: 如果没找到当前节点，取文本中第一个人名
+        if not current_handler and not current_node and nodes:
+            for i, n in enumerate(nodes):
+                if not re.search(r'处理|验证|确认|评估|发起|开发|支持|人员|一线|节点', n):
+                    current_handler = n
+                    break
+
+        if current_handler:
+            result['currentHandler'] = current_handler
+
+        return result if result else None
+
     def get_form_content(self, form_app_id, form_record_id, right_id, module_id):
-        """尝试通过 cap4 接口获取表单内容（含开发人员等字段）
+        """通过 cap4 接口获取表单内容（含开发人员等字段）
 
         Args:
             form_app_id: 表单应用 ID
@@ -464,6 +635,13 @@ class A8APIClient:
     def query_workorder(self, ticket_no, pending_data=None):
         """查询单个工单的完整信息
 
+        与 Playwright 版一致的提取顺序:
+        1. 从 fillmaps 获取基本信息
+        2. 获取 summary 页面
+        3. 从流程图提取当前节点和处理人（优先，与 Playwright 的流程视图一致）
+        4. 降级到 summary 意见区提取
+        5. 通过 cap4 表单 API 或 summary HTML 提取开发人员
+
         Args:
             ticket_no: 工单编号
             pending_data: 可选，该工单在 fillmaps 中的数据（避免重复获取列表）
@@ -482,8 +660,6 @@ class A8APIClient:
             return None
 
         # 从 fillmaps 数据中提取基本信息
-        if pending_data.get('nodeName'):
-            info['currentNode'] = pending_data['nodeName']
         if pending_data.get('affairNodeName'):
             info['affairNodeName'] = pending_data['affairNodeName']
         if pending_data.get('startMemberName'):
@@ -491,13 +667,25 @@ class A8APIClient:
         if pending_data.get('preApproverName'):
             info['preApprover'] = pending_data['preApproverName']
 
-        # 尝试获取工单详情页（用于提取当前处理人和开发人员）
-        # 如果 fillmaps 已有足够信息，可以跳过 summary 请求（减少 HTTP 调用）
+        # 获取工单详情页
         affair_id = pending_data.get('affairId')
+        summary_html = None
         if affair_id:
             summary_html = self.get_workorder_detail(affair_id)
-            if summary_html:
-                # 从详情页提取处理人信息
+
+        if summary_html:
+            # 优先从流程图提取当前节点和处理人（与 Playwright 版一致）
+            workflow_html = self.get_workflow_diagram(summary_html)
+            if workflow_html:
+                workflow_info = self.extract_handler_from_workflow_html(workflow_html)
+                if workflow_info:
+                    if workflow_info.get('currentNode'):
+                        info['currentNode'] = workflow_info['currentNode']
+                    if workflow_info.get('currentHandler'):
+                        info['currentHandler'] = workflow_info['currentHandler']
+
+            # 降级: 从 summary 意见区提取（Playwright 版的降级方案）
+            if 'currentHandler' not in info:
                 handler_info = self.extract_handler_from_summary(summary_html)
                 if handler_info:
                     if handler_info.get('currentHandler'):
@@ -507,10 +695,31 @@ class A8APIClient:
                     if handler_info.get('department'):
                         info['department'] = handler_info['department']
 
-                # 尝试从 summary HTML 直接提取开发人员
+            # 降级: fillmaps 中的 nodeName 作为最后补充
+            if 'currentNode' not in info and pending_data.get('nodeName'):
+                info['currentNode'] = pending_data['nodeName']
+
+            # 提取开发人员（与 Playwright 版一致，优先从表单 API 提取）
+            developer = None
+
+            # 方法1: 通过 cap4 表单 API 提取（最可靠，与 Playwright 的 form iframe 一致）
+            form_ids = self._extract_form_ids(summary_html)
+            if form_ids:
+                form_data = self.get_form_content(
+                    form_ids.get('formAppId'),
+                    form_ids.get('formRecordid'),
+                    form_ids.get('rightId'),
+                    form_ids.get('moduleId'),
+                )
+                if form_data:
+                    developer = self.extract_developer_from_form(form_data)
+
+            # 方法2: 从 summary HTML 直接提取开发人员（降级）
+            if not developer:
                 developer = self._extract_developer_from_html(summary_html)
-                if developer:
-                    info['developer'] = developer
+
+            if developer:
+                info['developer'] = developer
 
         # 从 subject 解析补充信息
         subject = pending_data.get('subject', '')
