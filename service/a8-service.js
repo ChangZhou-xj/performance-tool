@@ -2,6 +2,8 @@
 
 const { execSync } = require('child_process');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 
 /**
  * A8 工单查询服务
@@ -42,11 +44,19 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
   });
 
   try {
-    const result = execSync(`python3 "${scriptPath}" '${args.replace(/'/g, "'\\''")}'`, {
-      timeout: 300000, // 5分钟超时
-      encoding: 'utf-8',
-      maxBuffer: 50 * 1024 * 1024,
-    });
+    // Windows 上单引号不可靠，通过临时文件传递 JSON 参数
+    const tmpFile = path.join(os.tmpdir(), `a8-query-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, args, 'utf-8');
+    let result;
+    try {
+      result = execSync(`python3 "${scriptPath}" --file "${tmpFile}"`, {
+        timeout: 300000, // 5分钟超时
+        encoding: 'utf-8',
+        maxBuffer: 50 * 1024 * 1024,
+      });
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+    }
 
     const resultMap = new Map();
     const lines = result.trim().split('\n');
@@ -79,17 +89,17 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
 /**
  * 格式化处理人信息为简短文本
  * @param {object} info - 工单信息
- * @returns {string} 如 "开发：张三，当前处理：李四"
+ * @returns {string} 如 "开发人员：张三，当前处理人：李四"
  */
 function formatHandlerInfo(info) {
   if (!info) return '';
 
   const parts = [];
   if (info.developer) {
-    parts.push(`开发：${info.developer}`);
+    parts.push(`开发人员：${info.developer}`);
   }
   if (info.currentHandler) {
-    parts.push(`当前处理：${info.currentHandler}`);
+    parts.push(`当前处理人：${info.currentHandler}`);
   } else if (info.currentNode) {
     parts.push(`当前节点：${info.currentNode}`);
   }
@@ -114,11 +124,19 @@ async function captureA8Requests(ticketNo) {
   });
 
   try {
-    const result = execSync(`python3 "${scriptPath}" '${args.replace(/'/g, "'\\''")}'`, {
-      timeout: 120000,
-      encoding: 'utf-8',
-      maxBuffer: 50 * 1024 * 1024,
-    });
+    // Windows 上单引号不可靠，通过临时文件传递 JSON 参数
+    const tmpFile = path.join(os.tmpdir(), `a8-capture-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, args, 'utf-8');
+    let result;
+    try {
+      result = execSync(`python3 "${scriptPath}" --file "${tmpFile}"`, {
+        timeout: 120000,
+        encoding: 'utf-8',
+        maxBuffer: 50 * 1024 * 1024,
+      });
+    } finally {
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+    }
 
     const lines = result.trim().split('\n');
     for (const line of lines) {

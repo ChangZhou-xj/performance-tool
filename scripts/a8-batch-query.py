@@ -15,6 +15,7 @@ A8 工单批量查询脚本
 import sys
 import json
 import re
+import os
 
 try:
     from playwright.sync_api import sync_playwright
@@ -42,7 +43,7 @@ def login_a8(page, login_url, username, password):
 
 def find_affair_id(page, ticket_no):
     """在主页查找包含工单号的链接，提取 affairId"""
-    result = page.evaluate("""(ticketNo) => {
+    result = page.evaluate(r"""(ticketNo) => {
         const links = document.querySelectorAll("a");
         for (const l of links) {
             if ((l.innerText || "").includes(ticketNo)) {
@@ -60,7 +61,7 @@ def open_workorder(page, ticket_no, affair_id):
     """通过 A8 的 checkAndOpenLink JS API 打开工单"""
     collab_url = f'/collaboration/collaboration.do?method=summary&openFrom=listPending&affairId={affair_id}&showTab=true'
 
-    page.evaluate("""([ticketNo, collabUrl, affairId]) => {
+    page.evaluate(r"""([ticketNo, collabUrl, affairId]) => {
         const links = document.querySelectorAll("a");
         for (const l of links) {
             if ((l.innerText || "").includes(ticketNo)) {
@@ -84,7 +85,7 @@ def extract_current_handler_from_workflow(page, collab_frame):
     """
     try:
         # 切换到流程 tab
-        collab_frame.evaluate("""() => {
+        collab_frame.evaluate(r"""() => {
             const a = document.querySelector("li#workflow_view_li a");
             if (a) a.click();
         }""")
@@ -102,7 +103,7 @@ def extract_current_handler_from_workflow(page, collab_frame):
     if not workflow_frame:
         return None
 
-    result = workflow_frame.evaluate("""() => {
+    result = workflow_frame.evaluate(r"""() => {
         // 1. 找当前节点名（use[href*="current"] 所在的 g 元素的 text）
         let currentNode = "";
         const uses = document.querySelectorAll("use");
@@ -120,7 +121,7 @@ def extract_current_handler_from_workflow(page, collab_frame):
                             c = half;
                         }
                         // 跳过 [审批-xxx] 类的组织标签
-                        if (c.match(/^\\[审批/) || c === "[审批-财信]") continue;
+                        if (c.match(/^\[审批/) || c === "[审批-财信]") continue;
                         if (c) {
                             currentNode = c;
                         }
@@ -133,10 +134,10 @@ def extract_current_handler_from_workflow(page, collab_frame):
         // 2. 从流程文本中找当前节点后面的人名
         // 流程文本中节点和人名交替出现，人名紧跟在其处理的节点后面
         const bodyText = document.body.innerText || "";
-        const lines = bodyText.split("\\n").map(l => l.trim()).filter(l => l.length > 0);
+        const lines = bodyText.split("\n").map(l => l.trim()).filter(l => l.length > 0);
         const nodes = [];
         for (const line of lines) {
-            if (line === "流程预测" || line === "[审批-财信]" || line.match(/^\\d+%$/)) continue;
+            if (line === "流程预测" || line === "[审批-财信]" || line.match(/^\d+%$/)) continue;
             nodes.push(line);
         }
 
@@ -187,7 +188,7 @@ def extract_current_handler(collab_frame):
     <span>姓名</span> <span class="padding_l_5 color_black" title="部门">部门</span>
     <span class="margin_l_20 font_bold">暂存待办</span> <span>日期</span>
     """
-    handler_info = collab_frame.evaluate("""() => {
+    handler_info = collab_frame.evaluate(r"""() => {
         const statusSpans = document.querySelectorAll("span.font_bold, span.margin_l_20");
         for (const s of statusSpans) {
             const statusText = (s.innerText || "").trim();
@@ -218,7 +219,7 @@ def extract_developer(form_frame):
 
     A8 表单中，开发人员字段可能是:
     1. 普通 input，同行 label 包含 "开发人员"
-    2. 自定义组件，人名在 label 文本中（如 "开发人员\\n代吉盛、陈政伟"），
+    2. 自定义组件，人名在 label 文本中（如 "开发人员\n代吉盛、陈政伟"），
        input value 可能是其他值（如"补丁包"）
     """
     if not form_frame:
@@ -229,21 +230,21 @@ def extract_developer(form_frame):
     except Exception:
         pass
 
-    dev_info = form_frame.evaluate("""() => {
+    dev_info = form_frame.evaluate(r"""() => {
         // 方法1: 在 label 文本中查找 "开发人员" 后跟人名
         // A8 表单结构: 同一个 tr/div 中，label 和 input 并列
-        // 例如: "开发人员\\n代吉盛、陈政伟" 在 label 区域，input value 是 "补丁包"
+        // 例如: "开发人员\n代吉盛、陈政伟" 在 label 区域，input value 是 "补丁包"
         const containers = document.querySelectorAll("tr, div[class*='field'], div[class*='row']");
         for (const container of containers) {
             const text = (container.innerText || "").trim();
             if (text.includes("开发人员")) {
                 // 尝试从 label 文本中提取人名
-                // 格式: "开发人员\\n名字1、名字2" 或 "开发人员\\t名字"
-                const labelMatch = text.match(/开发人员[\\n\\t]+([^\\n\\t]+?)(?:[\\n\\t]|$)/);
+                // 格式: "开发人员\n名字1、名字2" 或 "开发人员\t名字"
+                const labelMatch = text.match(/开发人员[\n\t]+([^\n\t]+?)(?:[\n\t]|$)/);
                 if (labelMatch && labelMatch[1].trim()) {
                     const candidate = labelMatch[1].trim();
                     // 确认提取的不是选项值（如"补丁包"、"确定修改"）
-                    if (candidate.match(/[\\u4e00-\\u9fa5]{2,}/) && !candidate.match(/^(补丁包|确定修改|暂不修改|其他)$/)) {
+                    if (candidate.match(/[一-龥]{2,}/) && !candidate.match(/^(补丁包|确定修改|暂不修改|其他)$/)) {
                         return candidate;
                     }
                 }
@@ -253,7 +254,7 @@ def extract_developer(form_frame):
                 if (input && input.value && input.value.trim()) {
                     const val = input.value.trim();
                     // 检查 value 是否像人名（中文2-4字或含顿号分隔的多名）
-                    if (val.match(/^[\\u4e00-\\u9fa5]{2,4}(?:[、,，][\\u4e00-\\u9fa5]{2,4})*$/)) {
+                    if (val.match(/^[一-龥]{2,4}(?:[、,，][一-龥]{2,4})*$/)) {
                         return val;
                     }
                 }
@@ -277,12 +278,12 @@ def extract_developer(form_frame):
                 const rowText = (row.innerText || "").trim();
                 if (rowText.includes("开发人员")) {
                     const val = inp.value.trim();
-                    if (val.match(/^[\\u4e00-\\u9fa5]{2,4}(?:[、,，][\\u4e00-\\u9fa5]{2,4})*$/)) {
+                    if (val.match(/^[一-龥]{2,4}(?:[、,，][一-龥]{2,4})*$/)) {
                         return val;
                     }
                     // value 不是人名，尝试从 label 文本提取
-                    const labelMatch = rowText.match(/开发人员[\\n\\t]+([^\\n\\t]+?)(?:[\\n\\t]|$)/);
-                    if (labelMatch && labelMatch[1].trim().match(/[\\u4e00-\\u9fa5]{2,}/)) {
+                    const labelMatch = rowText.match(/开发人员[\n\t]+([^\n\t]+?)(?:[\n\t]|$)/);
+                    if (labelMatch && labelMatch[1].trim().match(/[一-龥]{2,}/)) {
                         return labelMatch[1].trim();
                     }
                 }
@@ -348,11 +349,20 @@ def main():
         print("ERROR: 缺少参数", file=sys.stderr)
         sys.exit(1)
 
-    try:
-        args = json.loads(sys.argv[1])
-    except json.JSONDecodeError as e:
-        print(f"ERROR: 参数 JSON 解析失败: {e}", file=sys.stderr)
-        sys.exit(1)
+    # 支持 --file 方式传入 JSON 参数（Windows 兼容）
+    if sys.argv[1] == "--file" and len(sys.argv) >= 3:
+        try:
+            with open(sys.argv[2], 'r', encoding='utf-8') as f:
+                args = json.load(f)
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            print(f"ERROR: 参数文件解析失败: {e}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        try:
+            args = json.loads(sys.argv[1])
+        except json.JSONDecodeError as e:
+            print(f"ERROR: 参数 JSON 解析失败: {e}", file=sys.stderr)
+            sys.exit(1)
 
     ticket_nos = args.get("ticketNos", [])
     login_url = args.get("loginUrl", MAIN_PAGE_URL)
