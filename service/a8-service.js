@@ -7,7 +7,7 @@ const os = require('os');
 
 /**
  * A8 工单查询服务
- * 通过 Python Playwright 脚本与 A8 系统交互，提取工单流程和处理人信息
+ * 通过 Python requests 脚本与 A8 系统交互，提取工单流程和处理人信息（纯 HTTP 版本）
  */
 
 const A8_BASE_URL = process.env.A8_BASE_URL || 'http://120.35.0.67:28101/';
@@ -34,7 +34,7 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
     return new Map();
   }
 
-  const scriptPath = path.join(SCRIPT_DIR, 'a8-batch-query.py');
+  const scriptPath = path.join(SCRIPT_DIR, 'a8-batch-query-api.py');
   const args = JSON.stringify({
     ticketNos: uniqueTicketNos,
     baseUrl: A8_BASE_URL,
@@ -103,6 +103,14 @@ function formatHandlerInfo(info) {
   } else if (info.currentNode) {
     parts.push(`当前节点：${info.currentNode}`);
   }
+  if (info.startMember && !info.developer) {
+    // 如果没有开发人员，显示发起人作为参考
+    parts.push(`发起人：${info.startMember}`);
+  }
+  if (info.affairNodeName && info.affairNodeName !== info.currentNode) {
+    // 节点详情与 currentNode 不同时才显示
+    parts.push(`节点详情：${info.affairNodeName}`);
+  }
 
   return parts.length > 0 ? parts.join('，') : '';
 }
@@ -113,43 +121,10 @@ function formatHandlerInfo(info) {
  * @returns {Promise<Array>} 网络请求日志
  */
 async function captureA8Requests(ticketNo) {
-  const scriptPath = path.join(SCRIPT_DIR, 'a8-batch-query.py');
-  const args = JSON.stringify({
-    mode: 'capture',
-    ticketNos: [ticketNo],
-    baseUrl: A8_BASE_URL,
-    loginUrl: A8_LOGIN_URL,
-    username: A8_USERNAME,
-    password: A8_PASSWORD,
-  });
-
-  try {
-    // Windows 上单引号不可靠，通过临时文件传递 JSON 参数
-    const tmpFile = path.join(os.tmpdir(), `a8-capture-${Date.now()}.json`);
-    fs.writeFileSync(tmpFile, args, 'utf-8');
-    let result;
-    try {
-      result = execSync(`python3 "${scriptPath}" --file "${tmpFile}"`, {
-        timeout: 120000,
-        encoding: 'utf-8',
-        maxBuffer: 50 * 1024 * 1024,
-      });
-    } finally {
-      try { fs.unlinkSync(tmpFile); } catch (_) {}
-    }
-
-    const lines = result.trim().split('\n');
-    for (const line of lines) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('CAPTURE:')) {
-        return JSON.parse(trimmed.substring(8));
-      }
-    }
-    return [];
-  } catch (err) {
-    console.warn(`⚠️ A8 抓包失败: ${err.message}`);
-    return [];
-  }
+  // 抓包模式仅 Playwright 版本支持，HTTP 版本返回空
+  // 如需抓包，临时切换回 a8-batch-query.py
+  console.warn('⚠️ 抓包模式需要 Playwright 版本 (a8-batch-query.py)，当前使用 HTTP 版本');
+  return [];
 }
 
 module.exports = {
