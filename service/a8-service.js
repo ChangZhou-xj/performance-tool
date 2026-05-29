@@ -20,7 +20,7 @@ const SCRIPT_DIR = path.join(__dirname, '..', 'scripts');
 
 /**
  * 批量查询多个工单的处理人信息
- * 使用同一个浏览器会话，避免重复登录
+ * 使用纯 HTTP API 调用，无需 Playwright 浏览器
  * @param {string[]} ticketNos - 工单编号列表
  * @param {Function} [onProgress] - 进度回调 (current, total, ticketNo)
  * @returns {Promise<Map<string, object>>} ticketNo -> 工单信息的映射
@@ -67,8 +67,13 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
         const jsonStr = trimmed.substring(7).trim();
         try {
           const data = JSON.parse(jsonStr);
-          if (data.ticketNo && data.info) {
-            resultMap.set(data.ticketNo, data.info);
+          if (data.ticketNo) {
+            // 新版 a8-batch-query-api.py 直接在根级别输出 developer/currentHandler
+            const info = {
+              developer: data.developer || data.info?.developer || null,
+              currentHandler: data.currentHandler || data.info?.currentHandler || null,
+            };
+            resultMap.set(data.ticketNo, info);
             if (onProgress) {
               onProgress(resultMap.size, uniqueTicketNos.length, data.ticketNo);
             }
@@ -88,8 +93,9 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
 
 /**
  * 格式化处理人信息为简短文本
+ * 只展示开发人员和当前处理人，用（）包括
  * @param {object} info - 工单信息
- * @returns {string} 如 "开发人员：张三，当前处理人：李四"
+ * @returns {string} 如 "（开发人员：张三）（当前处理人：李四）"
  */
 function formatHandlerInfo(info) {
   if (!info) return '';
@@ -100,19 +106,9 @@ function formatHandlerInfo(info) {
   }
   if (info.currentHandler) {
     parts.push(`当前处理人：${info.currentHandler}`);
-  } else if (info.currentNode) {
-    parts.push(`当前节点：${info.currentNode}`);
-  }
-  if (info.startMember && !info.developer) {
-    // 如果没有开发人员，显示发起人作为参考
-    parts.push(`发起人：${info.startMember}`);
-  }
-  if (info.affairNodeName && info.affairNodeName !== info.currentNode) {
-    // 节点详情与 currentNode 不同时才显示
-    parts.push(`节点详情：${info.affairNodeName}`);
   }
 
-  return parts.length > 0 ? parts.join('，') : '';
+  return parts.map((p) => `（${p}）`).join('');
 }
 
 /**
