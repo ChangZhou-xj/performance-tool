@@ -10,7 +10,7 @@ A8 工单查询脚本 - 纯 HTTP 版本（不依赖 Playwright）
   2. 待办列表：GET listPending → 从 fillmaps JSON 获取 affairId/processId/caseId
   3. 工单 summary：GET summary → 提取 wfDiagram_v
   4. 流程图：GET showDiagram + wfDiagram_v → 解析 processXml/caseLogXml/caseWorkitemLogXml
-  5. 输出：开发人员 + 当前处理人
+  5. 输出：项目对接人员 + 当前处理人
 
 用法:
   python3 a8-batch-query-api.py '{"ticketNos":["KFXQ-CX-xxx"],"loginUrl":"http://...","username":"xxx","password":"xxx"}'
@@ -300,8 +300,11 @@ class A8APIClient:
             node_map.setdefault(m.group(1), m.group(2))
 
         # 3. 从 caseWorkitemLogXml 构建节点ID→处理人列表映射
-        # <WL ... N="节点ID" PN="人名" .../>
+        #    同时提取每个 workitem 的 AS（affair state）用于判断活跃状态
+        # <WL ... N="节点ID" PN="人名" AS="0,26" .../>
+        # AS 字段含义: 0=初始, 21=已处理, 23=激活中, 26=暂存待办, 27=已提交, 5=已结束
         node_handlers = {}  # {节点ID: [人名列表]}
+        workitem_states = {}  # {节点ID: [(人名, AS值列表)]}
         if workitem_log_xml:
             for m in re.finditer(r'<WL\s+([^/]+)/>', workitem_log_xml):
                 attrs = m.group(1)
@@ -310,28 +313,86 @@ class A8APIClient:
                     attr_dict[am.group(1)] = am.group(2)
                 node_id = attr_dict.get('N', '')
                 person_name = attr_dict.get('PN', '')
+                as_raw = attr_dict.get('AS', '')
+                as_values = as_raw.split(',') if as_raw else []
                 if node_id and person_name:
                     node_handlers.setdefault(node_id, []).append(person_name)
+                    workitem_states.setdefault(node_id, []).append((person_name, as_values))
 
-        # 4. 提取目标数据
-        developer = None
-        current_handler = None
+        # 4. 判断活跃节点：AS 包含 "26"（暂存待办）且不包含 "5"（已结束）或 "21"（已处理）
+        #    同时保留 caseLogXml A=11 作为补充
+        active_node_ids = set()
+        # 4a. 从 caseWorkitemLogXml AS 字段判断（更准确）
+        for node_id, items in workitem_states.items():
+            for person_name, as_values in items:
+                has_26 = '26' in as_values  # 暂存待办
+                has_5 = '5' in as_values     # 已结束
+                has_21 = '21' in as_values   # 已处理
+                if has_26 and not has_5 and not has_21:
+                    active_node_ids.add(node_id)
+        # 4b. 从 caseLogXml A=11 补充（兼容旧数据）
+        if case_log_xml:
+            for m in re.finditer(r'<S\s+A="11"[^>]*N="([^"]*)"', case_log_xml):
+                active_node_ids.add(m.group(1))
 
+        # 5. 提取活跃 workitem 的处理人（真正的当前处理人）
+        #    AS=26 且无 5/21 的 workitem 的人名
+        active_handlers = {}  # {节点ID: [人名]}
+        for node_id, items in workitem_states.items():
+            for person_name, as_values in items:
+                has_26 = '26' in as_values
+                has_5 = '5' in as_values
+                has_21 = '21' in as_values
+                if has_26 and not has_5 and not has_21:
+                    active_handlers.setdefault(node_id, []).append(person_name)
+
+        all_nodes = []
+        for node_id, node_name in node_map.items():
+            handlers = node_handlers.get(node_id, [])
+            is_active = node_id in active_node_ids
+            # 活跃节点优先用 active_handlers（更精确）
+            display_handlers = active_handlers.get(node_id, handlers) if is_active else handlers
+            all_nodes.append({
+                'id': node_id,
+                'name': node_name,
+                'handlers': display_handlers if display_handlers else [],
+                'active': is_active,
+            })
+
+        # 6. 活跃节点列表
+        active_nodes = [n for n in all_nodes if n['active']]
+
+        # 7. 提取开发人员和当前处理人
         # 开发人员：节点名包含"开发人员"的节点上的处理人（去重）
-        developer_names = []
-        seen = set()
+        developer = None
+        developer_names = set()
         for node_id, node_name in node_map.items():
             if '开发人员' in node_name:
                 for name in node_handlers.get(node_id, []):
-                    if name not in seen:
-                        seen.add(name)
-                        developer_names.append(name)
+                    developer_names.add(name)
         if developer_names:
-            developer = ', '.join(developer_names)
+            developer = ', '.join(sorted(developer_names))
 
-        # 当前处理人：用 affairNodeName 匹配节点ID，再从 caseWorkitemLogXml 找人
-        if affair_node_name:
-            # affairNodeName 可能是"开发人员填写计划完成时间"，需要模糊匹配 processXml 中的节点名
+        # 当前处理人：优先从 active_handlers 取（基于 AS 状态判断，更准确）
+        # 若存在开发人员，则从当前处理人中排除开发人员，只输出其他人；无其他人则输出开发人员
+        current_handler = None
+        if active_handlers:
+            handler_names = []
+            seen_h = set()
+            for node_id, names in active_handlers.items():
+                for name in names:
+                    if name not in seen_h:
+                        seen_h.add(name)
+                        handler_names.append(name)
+            if handler_names:
+                if developer_names:
+                    others = [n for n in handler_names if n not in developer_names]
+                    current_handler = ', '.join(others) if others else ', '.join(handler_names)
+                else:
+                    current_handler = ', '.join(handler_names)
+
+        # 降级：用 affairNodeName 匹配节点ID，再从 caseWorkitemLogXml 找人
+        if not current_handler and affair_node_name:
             for node_id, node_name in node_map.items():
                 if node_name and (affair_node_name.startswith(node_name) or
                                   node_name in affair_node_name or
@@ -341,23 +402,15 @@ class A8APIClient:
                         current_handler = ', '.join(handlers)
                         break
 
-        # 降级：用 caseLogXml A=11 找活跃节点
-        if not current_handler and case_log_xml:
-            active_node_ids = set()
-            for m in re.finditer(r'<S\s+A="11"[^>]*N="([^"]*)"', case_log_xml):
-                active_node_ids.add(m.group(1))
-            for node_id in active_node_ids:
-                handlers = node_handlers.get(node_id, [])
-                if handlers:
-                    current_handler = ', '.join(handlers)
-                    break
-
         result = {
             'developer': developer,
             'currentHandler': current_handler,
+            'allNodes': all_nodes,
+            'activeNodes': active_nodes,
         }
 
-        print(f"INFO: developer={developer}, currentHandler={current_handler}", file=sys.stderr)
+        print(f"INFO: developer={developer}, currentHandler={current_handler}, "
+              f"nodes={len(all_nodes)}, active={len(active_nodes)}", file=sys.stderr)
         return result
 
     @staticmethod
@@ -381,7 +434,7 @@ class A8APIClient:
             pending_list: 已获取的待办列表（可选，避免重复请求）
 
         Returns:
-            dict: {"developer": "xxx", "currentHandler": "xxx"}
+            dict: {"projectLiaison": "xxx", "currentHandler": "xxx"}
         """
         # 从待办列表中找到匹配的工单
         if pending_list is None:
@@ -470,8 +523,10 @@ def main():
             'ticketNo': ticket_no,
             'developer': result.get('developer') if result else None,
             'currentHandler': result.get('currentHandler') if result else None,
+            'allNodes': result.get('allNodes') if result else [],
+            'activeNodes': result.get('activeNodes') if result else [],
         }
-        print(f"RESULT:{json.dumps(output)}")
+        print(f"RESULT:{json.dumps(output, ensure_ascii=False)}")
 
 
 if __name__ == '__main__':
