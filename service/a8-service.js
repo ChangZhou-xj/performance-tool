@@ -100,15 +100,11 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
 function formatHandlerInfo(info) {
   if (!info) return '';
 
-  const parts = [];
-  if (info.developer) {
-    parts.push(`开发人员：${info.developer}`);
-  }
   if (info.currentHandler) {
-    parts.push(`当前处理人：${info.currentHandler}`);
+    return `（当前处理人：${info.currentHandler}）`;
   }
 
-  return parts.map((p) => `（${p}）`).join('');
+  return '';
 }
 
 /**

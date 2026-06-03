@@ -6,6 +6,7 @@ const xlsx = require('xlsx');
 const { getWorkRecordPath } = require('./service/index');
 const { USER_NAME, DEPARTMENT } = require('./config');
 const { isEmpty } = require('./service');
+const { batchQueryWorkorders, formatHandlerInfo } = require('./service/a8-service');
 
 const REPORT_TYPE_MAP = {
 	day: '日报',
@@ -313,6 +314,7 @@ function pushUnique(list, record, formatter) {
 		productId: record.productId,
 		category: record.category,
 		defectDetector: record.defectDetector,
+		ticketNo: record.ticketNo,
 	});
 }
 
@@ -354,11 +356,22 @@ function sortByPlannedFinishPriority(items) {
 	});
 }
 
-function buildSectionList(items, indent = '    ', sorter = sortByDate) {
+function buildSectionList(items, indent = '    ', sorter = sortByDate, a8InfoMap = null) {
 	if (!items.length) return `${indent}暂无\n`;
 	return (
 		sorter(items)
-			.map((item, index) => `${indent}${index + 1}. ${item.text}`)
+			.map((item, index) => {
+				let text = item.text;
+				// 追加 A8 处理人信息（仅当 a8InfoMap 存在且 item 有 ticketNo 时）
+				if (a8InfoMap && item.ticketNo) {
+					const a8Info = a8InfoMap.get(item.ticketNo);
+					const handlerText = formatHandlerInfo(a8Info);
+					if (handlerText) {
+						text = `${text} ${handlerText}`;
+					}
+				}
+				return `${indent}${index + 1}. ${text}`;
+			})
 			.join('\n') + '\n'
 	);
 }
@@ -407,7 +420,7 @@ function buildWeekFocus(reportData) {
 	);
 }
 
-function buildWeekReportMarkdown(reportData) {
+function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 	const defectItems = collectUniqueItems(
 		reportData.ppDefects,
 		reportData.nonPpDefects,
@@ -429,7 +442,7 @@ function buildWeekReportMarkdown(reportData) {
 	markdown += buildSectionList(defectItems, '');
 	markdown += '\n';
 	markdown += '未完成工作\n';
-	markdown += buildSectionList(nextPlanItems, '', sortByPlannedFinishPriority);
+	markdown += buildSectionList(nextPlanItems, '', sortByPlannedFinishPriority, a8InfoMap);
 
 	return markdown;
 }
@@ -598,9 +611,9 @@ async function extractDeveloperReportData(type, targetDate) {
 	};
 }
 
-function buildReportMarkdown(type, reportData) {
+function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	if (type === 'week') {
-		return buildWeekReportMarkdown(reportData);
+		return buildWeekReportMarkdown(reportData, a8InfoMap);
 	}
 
 	const periodLabel = type === 'day' ? '今日' : type === 'week' ? '本周' : '本月';
@@ -641,7 +654,7 @@ function buildReportMarkdown(type, reportData) {
 	markdown += buildSectionList(achievedItems, '    ');
 
 	markdown += `七、${nextPlanLabel}工作计划：\n`;
-	markdown += buildSectionList(nextPlanItems, '    ', sortByPlannedFinishPriority);
+	markdown += buildSectionList(nextPlanItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
 
 	return markdown;
 }
@@ -691,7 +704,22 @@ async function generateReport(type, targetDate) {
 		return null;
 	}
 
-	const markdown = buildReportMarkdown(type, reportData);
+	// 收集未完成工作的工单号，批量查询 A8 获取开发人员和当前处理人
+	let a8InfoMap = new Map();
+	const nextPlanTicketNos = [...new Set(
+		reportData.nextPlanItems
+			.map((item) => item.ticketNo)
+			.filter((no) => no && no.match(/^(KFXQ|QXWT)-CX-\d+$/))
+	)];
+	if (nextPlanTicketNos.length > 0) {
+		console.log(`🔍 查询 A8 未完成工作处理人信息（${nextPlanTicketNos.length} 个工单）...`);
+		a8InfoMap = await batchQueryWorkorders(nextPlanTicketNos, (current, total, ticketNo) => {
+			console.log(`  ✓ [${current}/${total}] ${ticketNo}`);
+		});
+		console.log(`✅ A8 查询完成，获取 ${a8InfoMap.size} 个工单信息`);
+	}
+
+	const markdown = buildReportMarkdown(type, reportData, a8InfoMap);
 	const filePath = buildOutputFilePath(type, reportData.startDate, reportData.endDate);
 	fs.writeFileSync(filePath, markdown, 'utf-8');
 
