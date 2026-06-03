@@ -137,6 +137,17 @@ class EmailService {
   }
 
   /**
+   * 关闭 SMTP 连接池，释放资源
+   * nodemailer 的 transporter 默认保持连接池活跃，会阻止 Node.js 进程退出
+   */
+  closeTransporter() {
+    if (this.transporter) {
+      this.transporter.close();
+      this.transporter = null;
+    }
+  }
+
+  /**
    * 发送邮件
    * @param {Object} mailOptions - 邮件选项
    * @param {string} mailOptions.from - 发件人
@@ -172,11 +183,16 @@ class EmailService {
         await this.saveToSentFolder(options);
       }
 
+      // 关闭 SMTP 连接池，避免阻止 Node.js 事件循环退出
+      this.closeTransporter();
+
       return {
         success: true,
         messageId: info.messageId,
       };
     } catch (error) {
+      // 出错时也要关闭连接池
+      this.closeTransporter();
       console.error('邮件发送失败:', error);
       throw error;
     }
