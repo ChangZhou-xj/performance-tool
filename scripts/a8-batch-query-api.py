@@ -30,6 +30,12 @@ import base64
 import time
 from urllib.parse import urljoin, urlencode
 
+# Windows 上 Python stdout 默认使用 GBK 编码，而 Node.js 以 UTF-8 解码，
+# 导致中文乱码。强制 stdout 使用 UTF-8 编码。
+if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
+
 try:
     import requests
 except ImportError:
