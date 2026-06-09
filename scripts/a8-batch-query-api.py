@@ -325,31 +325,46 @@ class A8APIClient:
                     node_handlers.setdefault(node_id, []).append(person_name)
                     workitem_states.setdefault(node_id, []).append((person_name, as_values))
 
-        # 4. 判断活跃节点：AS 包含 "26"（暂存待办）且不包含 "5"（已结束）或 "21"（已处理）
+        # 4. 判断活跃节点
+        #    条件1：节点上有 AS 含 "26"（暂存待办）且不含 "5"（已结束）或 "21"（已处理）的 workitem
+        #    条件2：节点上有 AS 仅含 "0"（初始/待分配，尚未处理）的 workitem，
+        #           且该节点上有其他 AS=26 的 workitem（说明节点已激活，AS=0 的人也是当前处理人）
         #    同时保留 caseLogXml A=11 作为补充
         active_node_ids = set()
         # 4a. 从 caseWorkitemLogXml AS 字段判断（更准确）
         for node_id, items in workitem_states.items():
+            node_has_active_26 = False
             for person_name, as_values in items:
                 has_26 = '26' in as_values  # 暂存待办
                 has_5 = '5' in as_values     # 已结束
                 has_21 = '21' in as_values   # 已处理
                 if has_26 and not has_5 and not has_21:
-                    active_node_ids.add(node_id)
+                    node_has_active_26 = True
+            if node_has_active_26:
+                active_node_ids.add(node_id)
         # 4b. 从 caseLogXml A=11 补充（兼容旧数据）
         if case_log_xml:
             for m in re.finditer(r'<S\s+A="11"[^>]*N="([^"]*)"', case_log_xml):
                 active_node_ids.add(m.group(1))
 
         # 5. 提取活跃 workitem 的处理人（真正的当前处理人）
-        #    AS=26 且无 5/21 的 workitem 的人名
+        #    在活跃节点上，以下 workitem 的人名都是当前处理人：
+        #    - AS 含 "26" 且不含 "5"/"21"：暂存待办（正在处理中）
+        #    - AS 仅含 "0"（初始/待分配）：该节点已激活，AS=0 表示已分配但未开始处理
         active_handlers = {}  # {节点ID: [人名]}
         for node_id, items in workitem_states.items():
+            if node_id not in active_node_ids:
+                continue
             for person_name, as_values in items:
+                has_0 = '0' in as_values
                 has_26 = '26' in as_values
                 has_5 = '5' in as_values
                 has_21 = '21' in as_values
+                # 条件1：AS=26 且无 5/21（暂存待办中）
                 if has_26 and not has_5 and not has_21:
+                    active_handlers.setdefault(node_id, []).append(person_name)
+                # 条件2：AS=0 且无 26/5/21（初始/待分配，已分配但未开始处理）
+                elif has_0 and not has_26 and not has_5 and not has_21:
                     active_handlers.setdefault(node_id, []).append(person_name)
 
         all_nodes = []
@@ -380,7 +395,17 @@ class A8APIClient:
             developer = ', '.join(sorted(developer_names))
 
         # 当前处理人：优先从 active_handlers 取（基于 AS 状态判断，更准确）
-        # 若存在开发人员，则从当前处理人中排除开发人员，只输出其他人；无其他人则输出开发人员
+        # 排除逻辑：
+        #   若活跃节点中既有"开发人员"节点又有非"开发人员"节点（即已部分流转到其他节点），
+        #   则从当前处理人中排除开发人员，只输出其他人；无其他人则输出开发人员。
+        #   若活跃节点仅包含"开发人员"节点（即当前正停留在开发人员节点），则不排除，
+        #   因为此时开发人员就是当前处理人。
+        active_node_names = set()
+        for node_id in active_handlers:
+            active_node_names.add(node_map.get(node_id, ''))
+        has_developer_active_node = any('开发人员' in n for n in active_node_names)
+        has_non_developer_active_node = any('开发人员' not in n for n in active_node_names)
+
         current_handler = None
         if active_handlers:
             handler_names = []
@@ -391,7 +416,7 @@ class A8APIClient:
                         seen_h.add(name)
                         handler_names.append(name)
             if handler_names:
-                if developer_names:
+                if developer_names and has_developer_active_node and has_non_developer_active_node:
                     others = [n for n in handler_names if n not in developer_names]
                     current_handler = ', '.join(others) if others else ', '.join(handler_names)
                 else:
