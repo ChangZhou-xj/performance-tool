@@ -20,6 +20,7 @@ const {
 } = require('./generate-report-kf');
 const projectConfig = require('./config/project-config');
 const { batchQueryWorkorders, formatHandlerInfo } = require('./service/a8-service');
+const { buildEmailMap } = require('./config/recipients');
 
 /**
  * 根据项目名称匹配到项目配置
@@ -264,7 +265,7 @@ function collectTicketNos(projectDataMap) {
 /**
  * 生成项目问题汇报
  * @param {Date} targetDate - 目标日期
- * @returns {Promise<string|null>} 生成的文件路径
+ * @returns {Promise<{filePath: string, a8InfoMap: Map}|null>} 生成的文件路径和 A8 信息映射
  */
 async function generateProjectReport(targetDate) {
 	const projectDataMap = extractProjectData(targetDate);
@@ -316,15 +317,42 @@ async function generateProjectReport(targetDate) {
 		);
 	}
 
-	return filePath;
+	return { filePath, a8InfoMap };
+}
+
+/**
+ * 从 A8 工单信息中提取当前处理人的邮箱列表
+ * @param {Map} a8InfoMap - A8 工单信息映射
+ * @param {Map} emailMap - 姓名→邮箱映射
+ * @param {Set} excludeEmails - 需要排除的邮箱（已在收件人中的人）
+ * @returns {string[]} 邮箱地址列表（格式：姓名<邮箱>）
+ */
+function extractHandlerEmails(a8InfoMap, emailMap, excludeEmails) {
+	const handlerEmails = new Set();
+	if (!a8InfoMap || a8InfoMap.size === 0) return [];
+
+	for (const [, info] of a8InfoMap) {
+		if (!info.currentHandler) continue;
+		// currentHandler 可能是"周兴杰, 段晗斌"这样的多人格式
+		const names = info.currentHandler.split(/[,，、\s]+/).filter(n => n.trim());
+		for (const name of names) {
+			const trimmed = name.trim();
+			const email = emailMap.get(trimmed);
+			if (email && !excludeEmails.has(email)) {
+				handlerEmails.add(`${trimmed}<${email}>`);
+			}
+		}
+	}
+	return Array.from(handlerEmails);
 }
 
 /**
  * 发送项目问题汇报邮件
  * @param {string} reportFilePath - 报告文件路径
  * @param {Date} targetDate - 目标日期
+ * @param {Map} [a8InfoMap] - A8 工单信息映射
  */
-async function sendProjectEmail(reportFilePath, targetDate) {
+async function sendProjectEmail(reportFilePath, targetDate, a8InfoMap) {
 	// 邮件配置
 	const emailConfig = {
 		host: process.env.EMAIL_HOST || 'smtp.exmail.qq.com',
@@ -357,6 +385,18 @@ async function sendProjectEmail(reportFilePath, targetDate) {
 		throw new Error('未配置收件人，请在 config/project-config.js 中配置项目收件人');
 	}
 
+	// 收件人邮箱集合（用于从抄送中排除已在收件人中的人）
+	const toEmailSet = new Set();
+	for (const recipient of toList) {
+		const match = recipient.match(/<([^>]+)>/);
+		if (match) toEmailSet.add(match[1]);
+		else toEmailSet.add(recipient);
+	}
+
+	// 抄送：当前处理人（排除已在收件人中的人）
+	const emailMap = buildEmailMap();
+	const ccList = extractHandlerEmails(a8InfoMap, emailMap, toEmailSet);
+
 	// 创建邮件服务实例
 	const emailService = new EmailService(emailConfig);
 
@@ -367,6 +407,7 @@ async function sendProjectEmail(reportFilePath, targetDate) {
 	console.log('正在发送项目问题汇报邮件...');
 	await emailService.sendMail({
 		to: toList,
+		cc: ccList.length > 0 ? ccList : undefined,
 		subject: projectConfig.emailSubject,
 		html: html,
 	});
@@ -381,6 +422,9 @@ async function sendProjectEmail(reportFilePath, targetDate) {
 	console.log('✅ 项目问题汇报邮件发送成功！');
 	console.log('====================================');
 	console.log('收件人:', toList.join(', '));
+	if (ccList.length > 0) {
+		console.log('抄送人:', ccList.join(', '));
+	}
 	console.log('主题:', projectConfig.emailSubject);
 	console.log('====================================\n');
 }
@@ -430,14 +474,14 @@ async function main() {
 		}
 	}
 
-	const reportFilePath = await generateProjectReport(targetDate);
-	if (!reportFilePath) {
+	const result = await generateProjectReport(targetDate);
+	if (!result) {
 		console.log('未生成报告，跳过邮件发送');
 		return;
 	}
 
 	if (shouldSend) {
-		await sendProjectEmail(reportFilePath, targetDate);
+		await sendProjectEmail(result.filePath, targetDate, result.a8InfoMap);
 	}
 }
 
