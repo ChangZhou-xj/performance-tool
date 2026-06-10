@@ -244,6 +244,20 @@ class EmailService {
             padding-left: 10px;
             border-left: 4px solid #409eff;
           }
+          .sub-section-title {
+            color: #303133;
+            font-size: 14px;
+            font-weight: 600;
+            margin: 14px 0 8px 25px;
+            padding-left: 8px;
+            border-left: 3px solid #67c23a;
+          }
+          .meta-text {
+            color: #606266;
+            font-size: 13px;
+            line-height: 1.6;
+            margin: 4px 0 4px 25px;
+          }
           .normal-text {
             color: #606266;
             font-size: 14px;
@@ -320,33 +334,52 @@ class EmailService {
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
       const trimmedLine = line.trim();
+      const indent = line.length - line.trimStart().length;
 
       // 跳过空行
       if (!trimmedLine) {
         continue;
       }
 
-    // 处理章节标题（一、二、三等）
-    if (/^[一二三四五六七八九十]、/.test(trimmedLine)) {
-      currentSection = trimmedLine;
-      html += `<div class="section-title">${this.renderInlineMarkdown(trimmedLine)}</div>`;
-      continue;
-    }
+      // 处理章节标题（一、二、三等）
+      if (/^[一二三四五六七八九十]、/.test(trimmedLine)) {
+        currentSection = trimmedLine;
+        html += `<div class="section-title">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+        continue;
+      }
 
-    // 处理数字编号的工作项（1、2、3、等）
-    if (/^\d+[、\.]/.test(trimmedLine)) {
-      html += `<div class="work-item">${this.renderInlineMarkdown(trimmedLine)}</div>`;
-      continue;
-    }
+      // 处理子章节标题（今日新增单据、今日处理单据、剩余未解决单据）
+      if (/^(今日新增单据|今日处理单据|剩余未解决单据（共计）)/.test(trimmedLine)) {
+        html += `<div class="sub-section-title">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+        continue;
+      }
 
-    // 处理"暂无"
-    if (trimmedLine === '暂无' || trimmedLine === '暂无。') {
-      html += `<div class="empty-text">${this.escapeHtml(trimmedLine)}</div>`;
-      continue;
-    }
+      // 处理无活动摘要
+      if (/^今日无新增\/处理/.test(trimmedLine)) {
+        html += `<div class="empty-text">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+        continue;
+      }
 
-    // 处理其他普通文本（包括缩进的文本）
-    html += `<div class="normal-text">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+      // 处理数字编号的工作项（1、2、3、等）
+      if (/^\d+[、\.]/.test(trimmedLine)) {
+        html += `<div class="work-item">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+        continue;
+      }
+
+      // 处理"暂无"
+      if (trimmedLine === '暂无' || trimmedLine === '暂无。') {
+        html += `<div class="empty-text">${this.escapeHtml(trimmedLine)}</div>`;
+        continue;
+      }
+
+      // 处理元数据行（缩进2格，如：问题单在线文档、后端分支、前端分支）
+      if (indent === 2) {
+        html += `<div class="meta-text">${this.renderInlineMarkdown(trimmedLine)}</div>`;
+        continue;
+      }
+
+      // 处理其他普通文本（包括缩进的文本）
+      html += `<div class="normal-text">${this.renderInlineMarkdown(trimmedLine)}</div>`;
     }
 
     return html;

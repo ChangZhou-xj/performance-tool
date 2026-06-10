@@ -136,8 +136,8 @@ function extractProjectData(targetDate) {
  */
 function formatTicketLine(record, a8InfoMap) {
 	const parts = [];
-	if (record.taskContent) parts.push(record.taskContent);
-	if (record.commitInfo && record.commitInfo !== record.taskContent) parts.push(record.commitInfo);
+	if (record.taskContent) parts.push(record.taskContent.replace(/[\r\n]+/g, '；'));
+	if (record.commitInfo && record.commitInfo !== record.taskContent) parts.push(record.commitInfo.replace(/[\r\n]+/g, '；'));
 	const content = parts.length > 0 ? parts.join(' - ') : '暂无内容';
 	const suffix = record.ticketNo ? `【${record.ticketNo}】` : '';
 
