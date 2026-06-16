@@ -394,6 +394,16 @@ class A8APIClient:
         if developer_names:
             developer = ', '.join(sorted(developer_names))
 
+        # 支持人员：节点名包含"支持"的节点上的处理人（去重）
+        support_staff = None
+        support_names = set()
+        for node_id, node_name in node_map.items():
+            if '支持' in node_name:
+                for name in node_handlers.get(node_id, []):
+                    support_names.add(name)
+        if support_names:
+            support_staff = ', '.join(sorted(support_names))
+
         # 当前处理人：优先从 active_handlers 取（基于 AS 状态判断，更准确）
         # 排除逻辑：
         #   若活跃节点中既有"开发人员"节点又有非"开发人员"节点（即已部分流转到其他节点），
@@ -436,6 +446,7 @@ class A8APIClient:
         result = {
             'developer': developer,
             'currentHandler': current_handler,
+            'supportStaff': support_staff,
             'allNodes': all_nodes,
             'activeNodes': active_nodes,
         }
@@ -554,6 +565,7 @@ def main():
             'ticketNo': ticket_no,
             'developer': result.get('developer') if result else None,
             'currentHandler': result.get('currentHandler') if result else None,
+            'supportStaff': result.get('supportStaff') if result else None,
             'allNodes': result.get('allNodes') if result else [],
             'activeNodes': result.get('activeNodes') if result else [],
         }

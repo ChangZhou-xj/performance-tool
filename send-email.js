@@ -7,6 +7,7 @@ const EmailService = require('./service/email-service');
 const HolidayService = require('./service/holiday-service');
 const { extractDeveloperReportData } = require('./generate-report-kf');
 const { buildEmailMap } = require('./config/recipients');
+const { batchQueryWorkorders } = require('./service/a8-service');
 
 console.log('====================================');
 console.log('开始发送日报邮件');
@@ -51,6 +52,56 @@ function buildDynamicCcList(reportData, emailMap) {
     if (email) emailSet.add(email);
   }
   return Array.from(emailSet);
+}
+
+/**
+ * 根据无效缺陷数据构建差异化抄送人列表
+ * pp无效缺陷：抄送 陈晓宇、杨小军、王娜 + A8支持人员
+ * 非pp无效缺陷：抄送 杨小军、陈晓宇、孙佳旺（财信）+ 张林苹
+ * @param {object} reportData
+ * @param {Map<string, string>} emailMap
+ * @param {Map<string, object>} [a8InfoMap]
+ * @returns {string[]}
+ */
+function buildInvalidDefectCcList(reportData, emailMap, a8InfoMap) {
+  const ccSet = new Set();
+
+  // pp无效缺陷抄送规则
+  const PP_INVALID_CC = [
+    '陈晓宇<chenxiaoyu@bosssoft.com.cn>',
+    '杨小军<yangxiaojun@bosssoft.com.cn>',
+    '王娜<wang_na@bosssoft.com.cn>',
+  ];
+  if (reportData.ppInvalidDefects && reportData.ppInvalidDefects.length > 0) {
+    PP_INVALID_CC.forEach(e => ccSet.add(e));
+    // 追加A8支持人员
+    for (const item of reportData.ppInvalidDefects) {
+      if (item.ticketNo && a8InfoMap) {
+        const info = a8InfoMap.get(item.ticketNo);
+        if (info && info.supportStaff) {
+          const names = info.supportStaff.split(/[,，、\s]+/).filter(n => n.trim());
+          for (const name of names) {
+            const trimmed = name.trim();
+            const email = emailMap.get(trimmed);
+            if (email) ccSet.add(`${trimmed}<${email}>`);
+          }
+        }
+      }
+    }
+  }
+
+  // 非pp无效缺陷抄送规则
+  const NON_PP_INVALID_CC = [
+    '杨小军<yangxiaojun@bosssoft.com.cn>',
+    '陈晓宇<chenxiaoyu@bosssoft.com.cn>',
+    '孙佳旺（财信）<sunjiawang_cx@bosssoft.com.cn>',
+    '张林苹<zhanglinping@bosssoft.com.cn>',
+  ];
+  if (reportData.nonPpInvalidDefects && reportData.nonPpInvalidDefects.length > 0) {
+    NON_PP_INVALID_CC.forEach(e => ccSet.add(e));
+  }
+
+  return Array.from(ccSet);
 }
 
 /**
@@ -142,9 +193,34 @@ async function sendDailyReportEmail() {
     const emailRecipientMap = buildEmailMap();
     const reportData = await extractDeveloperReportData('day', new Date());
     const dynamicCc = buildDynamicCcList(reportData, emailRecipientMap);
-    const finalCc = [...new Set([...recipientConfig.cc, ...dynamicCc])];
+
+    // 查询 A8 工单信息（用于无效缺陷抄送的支持人员）
+    let a8InfoMap = new Map();
+    const hasInvalidDefects =
+      (reportData.ppInvalidDefects && reportData.ppInvalidDefects.length > 0) ||
+      (reportData.nonPpInvalidDefects && reportData.nonPpInvalidDefects.length > 0);
+    if (hasInvalidDefects) {
+      const invalidTicketNos = [...new Set([
+        ...(reportData.ppInvalidDefects || []),
+        ...(reportData.nonPpInvalidDefects || []),
+      ].map(item => item.ticketNo).filter(no => no && no.match(/^(KFXQ|QXWT)-CX-\d+$/)))];
+      if (invalidTicketNos.length > 0) {
+        console.log(`🔍 查询 A8 无效缺陷工单支持人员（${invalidTicketNos.length} 个工单）...`);
+        a8InfoMap = await batchQueryWorkorders(invalidTicketNos, (current, total, ticketNo) => {
+          console.log(`  ✓ [${current}/${total}] ${ticketNo}`);
+        });
+        console.log(`✅ A8 查询完成，获取 ${a8InfoMap.size} 个工单信息`);
+      }
+    }
+
+    // 构建无效缺陷抄送列表
+    const invalidDefectCc = buildInvalidDefectCcList(reportData, emailRecipientMap, a8InfoMap);
+    const finalCc = [...new Set([...recipientConfig.cc, ...dynamicCc, ...invalidDefectCc])];
     if (dynamicCc.length > 0) {
       console.log('动态抄送（缺陷引出人）:', dynamicCc.join(', '));
+    }
+    if (invalidDefectCc.length > 0) {
+      console.log('动态抄送（无效缺陷）:', invalidDefectCc.join(', '));
     }
 
     // 创建邮件服务实例

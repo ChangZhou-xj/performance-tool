@@ -196,6 +196,10 @@ function isNoCommitDefect(category) {
 	return category === '程序缺陷（无提交）';
 }
 
+function isInvalidDefect(category) {
+	return category.includes('无效');
+}
+
 function isDefectCategory(category) {
 	return category.includes('缺陷') && category !== '缺陷转需求' && !isNoCommitDefect(category);
 }
@@ -469,6 +473,8 @@ async function extractDeveloperReportData(type, targetDate) {
 	const defectToDemands = [];
 	const ppDefects = [];
 	const nonPpDefects = [];
+	const ppInvalidDefects = [];
+	const nonPpInvalidDefects = [];
 	const noCommitDefects = [];
 	const commits = [];
 	const reviews = [];
@@ -555,6 +561,9 @@ async function extractDeveloperReportData(type, targetDate) {
 		if (record.category.includes('缺陷') && record.category !== '缺陷转需求' && !record.category.startsWith('代码迁移-')) {
 			if (isNoCommitDefect(record.category)) {
 				pushUnique(noCommitDefects, record, formatNoCommitDefectLine);
+			} else if (isInvalidDefect(record.category)) {
+				const targetList = /^QXWT-/i.test(record.ticketNo) ? ppInvalidDefects : nonPpInvalidDefects;
+				pushUnique(targetList, record, formatBaseItem);
 			} else {
 				const targetList = /^QXWT-/i.test(record.ticketNo) ? ppDefects : nonPpDefects;
 				pushUnique(targetList, record, formatBaseItem);
@@ -599,6 +608,8 @@ async function extractDeveloperReportData(type, targetDate) {
 		defectToDemands,
 		ppDefects,
 		nonPpDefects,
+		ppInvalidDefects,
+		nonPpInvalidDefects,
 		noCommitDefects,
 		commits,
 		reviews,
@@ -630,9 +641,9 @@ function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	markdown += buildSectionList(demandsForReport.length > 0 ? demandsForReport : topInProgressDemands, '      ');
 	markdown += `    2、缺陷修复\n`;
 	markdown += `       2.1（pp缺陷）\n`;
-	markdown += buildSectionList(reportData.ppDefects, '          ');
+	markdown += buildSectionList([...reportData.ppDefects, ...reportData.ppInvalidDefects], '          ');
 	markdown += `       2.2（非pp缺陷）\n`;
-	markdown += buildSectionList(reportData.nonPpDefects, '          ');
+	markdown += buildSectionList([...reportData.nonPpDefects, ...reportData.nonPpInvalidDefects], '          ');
 
 	markdown += `二、其他：\n`;
 	if (reportData.noCommitDefects.length > 0) {

@@ -72,6 +72,7 @@ async function batchQueryWorkorders(ticketNos, onProgress) {
             const info = {
               developer: data.developer || data.info?.developer || null,
               currentHandler: data.currentHandler || data.info?.currentHandler || null,
+              supportStaff: data.supportStaff || null,
             };
             resultMap.set(data.ticketNo, info);
             if (onProgress) {
