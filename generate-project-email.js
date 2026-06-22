@@ -37,6 +37,29 @@ function matchProject(projectName) {
 }
 
 /**
+ * 按 A8 单号去重，同一单号只保留 Excel 顺序的第一条；无单号的记录全部保留
+ * 例如 KFXQ-CX-2026051300169 会有前后端迁移任务被登记多条，按 A8 单号去重避免重复展示
+ * @param {Array} records - 工作记录列表
+ * @returns {Array} 去重后的列表
+ */
+function dedupeByTicketNo(records) {
+	const seen = new Set();
+	const result = [];
+	for (const record of records) {
+		const key = record.ticketNo;
+		if (!key) {
+			// 无 A8 单号，全部保留
+			result.push(record);
+			continue;
+		}
+		if (seen.has(key)) continue; // 同单号只保留第一条
+		seen.add(key);
+		result.push(record);
+	}
+	return result;
+}
+
+/**
  * 从 Excel 提取数据并按项目分组
  * @param {Date} targetDate - 目标日期
  * @returns {object} 按项目分组的数据
@@ -123,6 +146,13 @@ function extractProjectData(targetDate) {
 		if (!allowedTaskStatuses.has(record.taskStatus)) {
 			projectData.unresolvedItems.push(record);
 		}
+	}
+
+	// 各列表按 A8 单号去重（同一单号多条记录只保留首条，无单号记录全部保留）
+	for (const [, projectData] of projectDataMap) {
+		projectData.todayNewItems = dedupeByTicketNo(projectData.todayNewItems);
+		projectData.todayProcessedItems = dedupeByTicketNo(projectData.todayProcessedItems);
+		projectData.unresolvedItems = dedupeByTicketNo(projectData.unresolvedItems);
 	}
 
 	return projectDataMap;
@@ -499,4 +529,5 @@ module.exports = {
 	matchProject,
 	collectTicketNos,
 	formatTicketLine,
+	dedupeByTicketNo,
 };
