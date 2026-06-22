@@ -135,6 +135,11 @@ const recipients = [
   { name: '黄习恒', email: 'huangxiheng@bosssoft.com.cn' },
   { name: '邵纪伟', email: 'shaojiwei@bosssoft.com.cn' },
   { name: '张英伟', email: 'zhangyingwei@bosssoft.com.cn' },
+  { name: '陈晓宇', email: 'chenxiaoyu@bosssoft.com.cn' },
+  { name: '杨小军', email: 'yangxiaojun@bosssoft.com.cn' },
+  { name: '孙佳旺', email: 'sunjiawang_cx@bosssoft.com.cn', alias: '孙佳旺（财信）' },
+  { name: '张林苹', email: 'zhanglinping@bosssoft.com.cn' },
+  { name: '王娜', email: 'wang_na@bosssoft.com.cn' },
 ];
 
 /**
