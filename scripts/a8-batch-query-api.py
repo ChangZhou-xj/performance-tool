@@ -3,22 +3,23 @@
 """
 A8 工单查询脚本 - 纯 HTTP 版本（不依赖 Playwright）
 
-从流程图中提取开发人员和当前处理人信息。
+从流程图中提取开发人员、支持人员和当前处理人信息。
 
 数据获取流程：
   1. 登录：POST /seeyon/main.do?method=login（DES 加密密码）
   2. 待办列表：GET listPending → 从 fillmaps JSON 获取 affairId/processId/caseId
-  3. 工单 summary：GET summary → 提取 wfDiagram_v
-  4. 流程图：GET showDiagram + wfDiagram_v → 解析 processXml/caseLogXml/caseWorkitemLogXml
-  5. 输出：项目对接人员 + 当前处理人
+  3. 已办列表：GET listDone → 待办中找不到时回退到已办列表
+  4. 工单 summary：GET summary → 提取 wfDiagram_v
+  5. 流程图：GET showDiagram + wfDiagram_v → 解析 processXml/caseLogXml/caseWorkitemLogXml
+  6. 输出：开发人员 + 支持人员 + 当前处理人
 
 用法:
   python3 a8-batch-query-api.py '{"ticketNos":["KFXQ-CX-xxx"],"loginUrl":"http://...","username":"xxx","password":"xxx"}'
   python3 a8-batch-query-api.py --file params.json
 
 输出:
-  RESULT:{"ticketNo":"xxx","developer":"张三","currentHandler":"李四"}
-  RESULT:{"ticketNo":"yyy","developer":null,"currentHandler":null}
+  RESULT:{"ticketNo":"xxx","developer":"张三","currentHandler":"李四","supportStaff":"王五"}
+  RESULT:{"ticketNo":"yyy","developer":null,"currentHandler":null,"supportStaff":null}
 """
 
 import sys
@@ -206,14 +207,95 @@ class A8APIClient:
         print(f"INFO: 待办列表 {len(data_list)} 条", file=sys.stderr)
         return data_list
 
+    # ─── 已办列表 ────────────────────────────────────────
+
+    def get_done_list(self, page=1, rows=200):
+        """获取已办列表，返回 fillmaps 中的 data 数组"""
+        url = f"{self.base_url}/seeyon/collaboration/collaboration.do?method=listDone"
+        resp = self.session.get(url, params={'page': page, 'rows': rows}, timeout=30)
+        if resp.status_code != 200:
+            print(f"ERROR: 获取已办列表失败, status={resp.status_code}", file=sys.stderr)
+            return []
+
+        match = re.search(r'\$\.ctx\.fillmaps\s*=\s*(\{.*?\})\s*;', resp.text, re.DOTALL)
+        if not match:
+            print("WARN: 未找到 fillmaps 数据 (listDone)", file=sys.stderr)
+            return []
+
+        try:
+            fillmaps = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            print("WARN: fillmaps JSON 解析失败 (listDone)", file=sys.stderr)
+            return []
+
+        try:
+            data_list = fillmaps['listDone']['data']
+        except (KeyError, TypeError):
+            try:
+                data_list = fillmaps['data']['listDone']['data']
+            except (KeyError, TypeError):
+                print(f"WARN: fillmaps 结构异常 (listDone), keys={list(fillmaps.keys())}", file=sys.stderr)
+                return []
+
+        print(f"INFO: 已办列表 {len(data_list)} 条 (page={page})", file=sys.stderr)
+        return data_list
+
+    # ─── 撤销回退记录 ──────────────────────────────────────
+
+    def get_stepback_list(self, page=1, size=200):
+        """获取撤销回退记录列表
+
+        通过 traceWorkflowManager.getColPageInfo 接口查询，
+        recordType=stepBackRecord 对应撤销回退记录。
+
+        Returns:
+            list: 撤销回退记录数据数组，每条包含 affairId/subject/trackType 等
+        """
+        args = [
+            {"page": page, "size": size},
+            {"app": "1", "govdocType": "", "listType": "",
+             "paramTemplateIds": "", "recordType": "stepBackRecord"}
+        ]
+        resp = self.session.post(
+            f"{self.base_url}/seeyon/ajax.do?method=ajaxAction"
+            "&managerName=traceWorkflowManager",
+            data={
+                'managerMethod': 'getColPageInfo',
+                'arguments': json.dumps(args),
+            },
+            timeout=30
+        )
+        if resp.status_code != 200:
+            print(f"ERROR: 获取撤销回退记录失败, status={resp.status_code}", file=sys.stderr)
+            return []
+
+        try:
+            data = json.loads(resp.text)
+        except json.JSONDecodeError:
+            print(f"WARN: 撤销回退记录 JSON 解析失败", file=sys.stderr)
+            return []
+
+        # 返回可能是 list 或 dict
+        if isinstance(data, list):
+            print(f"INFO: 撤销回退记录 {len(data)} 条 (page={page})", file=sys.stderr)
+            return data
+        elif isinstance(data, dict):
+            items = data.get('data', data.get('result', []))
+            print(f"INFO: 撤销回退记录 {len(items)} 条 (page={page})", file=sys.stderr)
+            return items
+        else:
+            print(f"WARN: 撤销回退记录返回格式异常", file=sys.stderr)
+            return []
+
     # ─── 流程图数据提取 ──────────────────────────────────
 
-    def get_summary_and_workflow(self, affair_id, affair_node_name=None):
+    def get_summary_and_workflow(self, affair_id, affair_node_name=None, open_from='listPending'):
         """获取 summary 页面 + 流程图 HTML，提取开发人员和当前处理人
 
         Args:
             affair_id: 工单 affairId
             affair_node_name: fillmaps 中的 affairNodeName（用于匹配当前活跃节点）
+            open_from: 来源列表，'listPending' 或 'listDone'
 
         Returns:
             dict: {"developer": "xxx", "currentHandler": "xxx"} 或 null 值
@@ -221,7 +303,7 @@ class A8APIClient:
         # 1. GET summary → 提取 processId, caseId, wfDiagram_v
         url = f"{self.base_url}/seeyon/collaboration/collaboration.do?method=summary"
         resp = self.session.get(url, params={
-            'openFrom': 'listPending',
+            'openFrom': open_from,
             'affairId': affair_id,
             'showTab': 'true',
         }, timeout=30)
@@ -233,9 +315,12 @@ class A8APIClient:
 
         # 提取关键参数
         process_id = self._extract_var(summary_html, 'processId') or \
-                     self._extract_hidden(summary_html, 'processId')
+                     self._extract_hidden(summary_html, 'processId') or \
+                     self._extract_var(summary_html, '_contextProcessId')
         case_id = self._extract_var(summary_html, 'caseId') or \
-                  self._extract_hidden(summary_html, 'caseId')
+                  self._extract_hidden(summary_html, 'caseId') or \
+                  self._extract_var(summary_html, '_summaryCaseId') or \
+                  self._extract_var(summary_html, '_contextCaseId')
         wf_diagram_v = self._extract_var(summary_html, 'wfDiagram_v')
 
         if not process_id or not case_id:
@@ -394,28 +479,46 @@ class A8APIClient:
         if developer_names:
             developer = ', '.join(sorted(developer_names))
 
-        # 支持人员：节点名包含"支持"的节点上的处理人（去重）
+        # 支持人员：只取当前活跃的"支持"节点上的处理人（去重）
+        # 如果没有活跃的支持人员节点，则取最后一个（流程图中最后出现的）支持人员节点上
+        # AS 不含 "5"（已结束）的处理人
         support_staff = None
         support_names = set()
-        for node_id, node_name in node_map.items():
+        
+        # 优先：活跃的支持人员节点上的处理人
+        active_support_found = False
+        for node_id in active_handlers:
+            node_name = node_map.get(node_id, '')
             if '支持' in node_name:
-                for name in node_handlers.get(node_id, []):
+                for name in active_handlers[node_id]:
                     support_names.add(name)
+                active_support_found = True
+        
+        # 如果没有活跃的支持人员节点，取所有支持人员节点上 AS 不含 "5"（已结束）且不含 "21"（已处理）的处理人
+        if not active_support_found:
+            for node_id, node_name in node_map.items():
+                if '支持' in node_name:
+                    for person_name, as_values in workitem_states.get(node_id, []):
+                        has_5 = '5' in as_values
+                        has_21 = '21' in as_values
+                        if not has_5 and not has_21:
+                            support_names.add(person_name)
+        
+        # 如果仍然为空，取最后一个有处理人的支持人员节点上的所有人
+        # （回退/撤销工单场景：所有支持人员都已处理完毕，但仍需显示历史支持人员）
+        if not support_names:
+            last_support_node_with_handlers = None
+            for node_id, node_name in node_map.items():
+                if '支持' in node_name and node_handlers.get(node_id):
+                    last_support_node_with_handlers = node_id
+            if last_support_node_with_handlers:
+                for name in node_handlers.get(last_support_node_with_handlers, []):
+                    support_names.add(name)
+        
         if support_names:
             support_staff = ', '.join(sorted(support_names))
 
-        # 当前处理人：优先从 active_handlers 取（基于 AS 状态判断，更准确）
-        # 排除逻辑：
-        #   若活跃节点中既有"开发人员"节点又有非"开发人员"节点（即已部分流转到其他节点），
-        #   则从当前处理人中排除开发人员，只输出其他人；无其他人则输出开发人员。
-        #   若活跃节点仅包含"开发人员"节点（即当前正停留在开发人员节点），则不排除，
-        #   因为此时开发人员就是当前处理人。
-        active_node_names = set()
-        for node_id in active_handlers:
-            active_node_names.add(node_map.get(node_id, ''))
-        has_developer_active_node = any('开发人员' in n for n in active_node_names)
-        has_non_developer_active_node = any('开发人员' not in n for n in active_node_names)
-
+        # 当前处理人：从 active_handlers 取所有活跃处理人（去重）
         current_handler = None
         if active_handlers:
             handler_names = []
@@ -426,11 +529,7 @@ class A8APIClient:
                         seen_h.add(name)
                         handler_names.append(name)
             if handler_names:
-                if developer_names and has_developer_active_node and has_non_developer_active_node:
-                    others = [n for n in handler_names if n not in developer_names]
-                    current_handler = ', '.join(others) if others else ', '.join(handler_names)
-                else:
-                    current_handler = ', '.join(handler_names)
+                current_handler = ', '.join(handler_names)
 
         # 降级：用 affairNodeName 匹配节点ID，再从 caseWorkitemLogXml 找人
         if not current_handler and affair_node_name:
@@ -468,21 +567,27 @@ class A8APIClient:
 
     # ─── 工单查询 ────────────────────────────────────────
 
-    def query_workorder(self, ticket_no, pending_list=None):
+    def query_workorder(self, ticket_no, pending_list=None, done_list=None):
         """查询单个工单的开发人员和当前处理人
+
+        查找顺序：
+          1. 待办列表（listPending）— 工单尚未处理完毕
+          2. 已办列表（listDone）— 工单已流转完毕，支持人员和开发人员仍可从流程图提取
 
         Args:
             ticket_no: 工单编号（如 KFXQ-CX-2026052600025）
             pending_list: 已获取的待办列表（可选，避免重复请求）
+            done_list: 已获取的已办列表（可选，避免重复请求）
 
         Returns:
-            dict: {"projectLiaison": "xxx", "currentHandler": "xxx"}
+            dict: {"developer": "xxx", "currentHandler": "xxx", "supportStaff": "xxx"} 或 null 值
         """
-        # 从待办列表中找到匹配的工单
+        # ── 1. 从待办列表查找 ──
         if pending_list is None:
             pending_list = self.get_pending_list()
 
         matched = None
+        open_from = 'listPending'
         for item in pending_list:
             subject = item.get('subject', '')
             if ticket_no in subject:
@@ -490,7 +595,7 @@ class A8APIClient:
                 break
 
         if not matched:
-            # 搜索更多页
+            # 搜索更多页待办
             for page in range(2, 6):
                 extra = self.get_pending_list(page=page)
                 if not extra:
@@ -503,15 +608,60 @@ class A8APIClient:
                 if matched:
                     break
 
+        # ── 2. 从已办列表查找（待办中找不到时的回退） ──
         if not matched:
-            print(f"WARN: 未找到工单 {ticket_no}", file=sys.stderr)
+            print(f"INFO: 待办列表未找到 {ticket_no}，尝试已办列表...", file=sys.stderr)
+            if done_list is None:
+                done_list = self.get_done_list()
+
+            for item in done_list:
+                subject = item.get('subject', '')
+                if ticket_no in subject:
+                    matched = item
+                    open_from = 'listDone'
+                    break
+
+            if not matched:
+                # 搜索更多页已办
+                for page in range(2, 11):
+                    extra = self.get_done_list(page=page)
+                    if not extra:
+                        break
+                    for item in extra:
+                        subject = item.get('subject', '')
+                        if ticket_no in subject:
+                            matched = item
+                            open_from = 'listDone'
+                            break
+                    if matched:
+                        break
+
+        # ── 3. 从撤销回退记录查找（已办中也找不到时的回退） ──
+        if not matched:
+            print(f"INFO: 已办列表未找到 {ticket_no}，尝试撤销回退记录...", file=sys.stderr)
+            for page in range(1, 11):
+                stepback_list = self.get_stepback_list(page=page, size=200)
+                if not stepback_list:
+                    break
+                for item in stepback_list:
+                    subject = item.get('subject', '')
+                    if ticket_no in subject:
+                        matched = item
+                        open_from = 'listDone'
+                        break
+                if matched:
+                    break
+
+        if not matched:
+            print(f"WARN: 待办、已办和撤销回退记录均未找到工单 {ticket_no}", file=sys.stderr)
             return None
 
         affair_id = str(matched.get('affairId', ''))
         affair_node_name = matched.get('affairNodeName', '')
-        print(f"INFO: 工单 {ticket_no} → affairId={affair_id}, affairNodeName={affair_node_name}", file=sys.stderr)
+        print(f"INFO: 工单 {ticket_no} → affairId={affair_id}, affairNodeName={affair_node_name}, "
+              f"来源={open_from}", file=sys.stderr)
 
-        return self.get_summary_and_workflow(affair_id, affair_node_name)
+        return self.get_summary_and_workflow(affair_id, affair_node_name, open_from=open_from)
 
 
 # ─── 主入口 ────────────────────────────────────────────
@@ -555,12 +705,26 @@ def main():
             print(f"RESULT:{json.dumps({'ticketNo': ticket_no, 'developer': None, 'currentHandler': None})}")
         sys.exit(1)
 
-    # 获取待办列表
+    # 获取待办列表和已办列表（预加载多页，避免每个工单重复请求）
     pending_list = client.get_pending_list()
+    for page in range(2, 6):
+        extra = client.get_pending_list(page=page)
+        if not extra:
+            break
+        pending_list.extend(extra)
+
+    done_list = client.get_done_list()
+    for page in range(2, 11):
+        extra = client.get_done_list(page=page)
+        if not extra:
+            break
+        done_list.extend(extra)
+
+    print(f"INFO: 预加载完成 — 待办 {len(pending_list)} 条, 已办 {len(done_list)} 条", file=sys.stderr)
 
     # 查询每个工单
     for ticket_no in ticketNos:
-        result = client.query_workorder(ticket_no, pending_list)
+        result = client.query_workorder(ticket_no, pending_list, done_list)
         output = {
             'ticketNo': ticket_no,
             'developer': result.get('developer') if result else None,
