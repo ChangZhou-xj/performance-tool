@@ -19,22 +19,9 @@ const {
 	allowedTaskStatuses,
 } = require('./generate-report-kf');
 const projectConfig = require('./config/project-config');
+const { matchProject } = require('./service/project-match');
 const { batchQueryWorkorders, formatHandlerInfo } = require('./service/a8-service');
 const { buildEmailMap } = require('./config/recipients');
-
-/**
- * 根据项目名称匹配到项目配置
- * @param {string} projectName - Excel 中的项目名称
- * @returns {object|null} 匹配到的项目配置
- */
-function matchProject(projectName) {
-	for (const project of projectConfig.projects) {
-		if (project.matchKeywords.some((kw) => projectName.includes(kw))) {
-			return project;
-		}
-	}
-	return null;
-}
 
 /**
  * 按 A8 单号去重，同一单号只保留 Excel 顺序的第一条；无单号的记录全部保留
