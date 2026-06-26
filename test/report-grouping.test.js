@@ -1,5 +1,9 @@
 var assert = require('chai').assert;
-var { groupNextPlanItems } = require('../generate-report-kf');
+var {
+  groupNextPlanItems,
+  buildReportMarkdown,
+  buildWeekReportMarkdown,
+} = require('../generate-report-kf');
 
 function makeItem(projectName) {
   return { key: projectName, text: projectName, projectName: projectName };
@@ -44,8 +48,6 @@ describe('groupNextPlanItems()', function () {
     assert.lengthOf(result.devItems, 0);
   });
 });
-
-var { buildReportMarkdown } = require('../generate-report-kf');
 
 describe('buildReportMarkdown 未完成工作分组（day）', function () {
 
@@ -95,8 +97,6 @@ describe('buildReportMarkdown 未完成工作分组（day）', function () {
     assert.ok(/七、明日工作计划：\n\s+暂无/.test(md));
   });
 });
-
-var { buildWeekReportMarkdown } = require('../generate-report-kf');
 
 describe('buildWeekReportMarkdown 未完成工作分组（week）', function () {
 
