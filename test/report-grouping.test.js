@@ -95,3 +95,43 @@ describe('buildReportMarkdown 未完成工作分组（day）', function () {
     assert.ok(/七、明日工作计划：\n\s+暂无/.test(md));
   });
 });
+
+var { buildWeekReportMarkdown } = require('../generate-report-kf');
+
+describe('buildWeekReportMarkdown 未完成工作分组（week）', function () {
+
+  function makeWeekData(nextPlanItems) {
+    return {
+      month: 6,
+      monthlyDemandProgress: { month: 6, completedCount: 0, inProgressCount: 0 },
+      demands: [], defectToDemands: [], ppDefects: [], nonPpDefects: [],
+      ppInvalidDefects: [], nonPpInvalidDefects: [],
+      nextPlanItems: nextPlanItems,
+    };
+  }
+
+  function makePlanItem(key, projectName, plannedFinish) {
+    return { key: key, text: key, projectName: projectName, plannedFinish: plannedFinish || '' };
+  }
+
+  it('项目对接在前、开发工作在后，各自从 1 编号', function () {
+    var data = makeWeekData([
+      makePlanItem('A', '内部开发', ''),
+      makePlanItem('B', '个旧市智能支出服务与监督管理平台实施项目', '2026年6月28日'),
+    ]);
+    var md = buildWeekReportMarkdown(data, null);
+    var dockingPos = md.indexOf('项目对接：');
+    var devPos = md.indexOf('开发工作：');
+    assert.isAbove(dockingPos, 0);
+    assert.isAbove(devPos, 0);
+    assert.isBelow(dockingPos, devPos);
+    assert.ok(/项目对接：\n\s+1\./.test(md));
+    assert.ok(/开发工作：\n\s+1\./.test(md));
+  });
+
+  it('无未完成工作时显示暂无', function () {
+    var data = makeWeekData([]);
+    var md = buildWeekReportMarkdown(data, null);
+    assert.ok(/未完成工作\n\s+暂无/.test(md));
+  });
+});

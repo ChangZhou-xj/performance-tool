@@ -448,6 +448,7 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 		reportData.nonPpDefects,
 	);
 	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
+	const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
 
 	let markdown = '';
 	markdown += '领导好，本周工作内容如下：\n\n';
@@ -464,7 +465,18 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 	markdown += buildSectionList(defectItems, '');
 	markdown += '\n';
 	markdown += '未完成工作\n';
-	markdown += buildSectionList(nextPlanItems, '', sortByPlannedFinishPriority, a8InfoMap);
+	if (dockingItems.length === 0 && devItems.length === 0) {
+		markdown += `  暂无\n`;
+	} else {
+		if (dockingItems.length > 0) {
+			markdown += `  项目对接：\n`;
+			markdown += buildSectionList(dockingItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
+		}
+		if (devItems.length > 0) {
+			markdown += `  开发工作：\n`;
+			markdown += buildSectionList(devItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
+		}
+	}
 
 	return markdown;
 }
@@ -842,4 +854,5 @@ module.exports = {
 	completedTaskStatuses,
 	groupNextPlanItems,
 	buildReportMarkdown,
+	buildWeekReportMarkdown,
 };
