@@ -27,6 +27,12 @@ describe('matchProject()', function () {
     assert.equal(p.displayName, '国家体育总局反兴奋剂中心');
   });
 
+  it('体育总局关键词命中反兴奋剂中心项目', function () {
+    var p = matchProject('国家体育总局2025年某系统实施项目');
+    assert.isNotNull(p);
+    assert.equal(p.displayName, '国家体育总局反兴奋剂中心');
+  });
+
   it('非对接项目返回 null', function () {
     assert.isNull(matchProject('内部开发'));
     assert.isNull(matchProject('自主优化'));

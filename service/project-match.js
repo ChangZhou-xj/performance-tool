@@ -4,7 +4,8 @@ const projectConfig = require('../config/project-config');
 
 /**
  * 根据项目名称匹配到项目配置
- * 与 generate-project-email.js 口径一致：命中任一 matchKeyword 即匹配
+ * 与 generate-project-email.js 匹配语义一致：命中任一 matchKeyword 即匹配
+ * （额外对空值入参做防御，返回 null 而非抛错）
  * @param {string} projectName - Excel 中的项目名称
  * @returns {object|null} 匹配到的项目配置
  */
