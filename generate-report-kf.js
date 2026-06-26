@@ -7,6 +7,7 @@ const { getWorkRecordPath } = require('./service/index');
 const { USER_NAME, DEPARTMENT } = require('./config');
 const { isEmpty } = require('./service');
 const { batchQueryWorkorders, formatHandlerInfo } = require('./service/a8-service');
+const { matchProject } = require('./service/project-match');
 
 const REPORT_TYPE_MAP = {
 	day: '日报',
@@ -390,6 +391,23 @@ function collectUniqueItems(...groups) {
 	return Array.from(map.values());
 }
 
+/**
+ * 将未完成工作按项目归类拆为「项目对接」与「开发工作」两组
+ * @param {Array} items - nextPlanItems（已 collectUniqueItems 去重）
+ * @returns {{ dockingItems: Array, devItems: Array }}
+ */
+function groupNextPlanItems(items) {
+	const dockingItems = [];
+	const devItems = [];
+	for (const item of items) {
+		if (matchProject(item.projectName)) {
+			dockingItems.push(item);
+		} else {
+			devItems.push(item);
+		}
+	}
+	return { dockingItems, devItems };
+}
 
 function formatPercentage(value) {
 	if (!Number.isFinite(value)) {
@@ -810,4 +828,5 @@ module.exports = {
 	formatDateCN,
 	allowedTaskStatuses,
 	completedTaskStatuses,
+	groupNextPlanItems,
 };
