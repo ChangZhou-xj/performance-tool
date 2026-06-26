@@ -44,3 +44,54 @@ describe('groupNextPlanItems()', function () {
     assert.lengthOf(result.devItems, 0);
   });
 });
+
+var { buildReportMarkdown } = require('../generate-report-kf');
+
+describe('buildReportMarkdown 未完成工作分组（day）', function () {
+
+  function makeReportData(nextPlanItems) {
+    return {
+      startDate: new Date(2026, 5, 26),
+      endDate: new Date(2026, 5, 26),
+      demands: [], defectToDemands: [], ppDefects: [], nonPpDefects: [],
+      ppInvalidDefects: [], nonPpInvalidDefects: [], noCommitDefects: [],
+      commits: [], reviews: [], migrations: [], packs: [],
+      achievedItems: [],
+      nextPlanItems: nextPlanItems,
+      inProgressDemands: [],
+      monthlyDemandProgress: { month: 6, completedCount: 0, inProgressCount: 0 },
+    };
+  }
+
+  function makePlanItem(key, projectName, plannedFinish) {
+    return { key: key, text: key, projectName: projectName, plannedFinish: plannedFinish || '' };
+  }
+
+  it('项目对接在前、开发工作在后，各自从 1 编号', function () {
+    var data = makeReportData([
+      makePlanItem('A', '内部开发', ''),
+      makePlanItem('B', '辽宁省沈阳大学智慧财务一体化实施服务项目', '2026年6月28日'),
+    ]);
+    var md = buildReportMarkdown('day', data, null);
+    var dockingPos = md.indexOf('项目对接：');
+    var devPos = md.indexOf('开发工作：');
+    assert.isAbove(dockingPos, 0);
+    assert.isAbove(devPos, 0);
+    assert.isBelow(dockingPos, devPos, '项目对接应在开发工作之前');
+    assert.ok(/项目对接：\n\s+1\./.test(md), '项目对接应从 1 开始编号');
+    assert.ok(/开发工作：\n\s+1\./.test(md), '开发工作应从 1 开始编号');
+  });
+
+  it('只有开发工作时仅显示开发工作子标题', function () {
+    var data = makeReportData([makePlanItem('A', '内部开发', '')]);
+    var md = buildReportMarkdown('day', data, null);
+    assert.equal(md.indexOf('项目对接：'), -1);
+    assert.isAbove(md.indexOf('开发工作：'), 0);
+  });
+
+  it('无未完成工作时显示暂无', function () {
+    var data = makeReportData([]);
+    var md = buildReportMarkdown('day', data, null);
+    assert.ok(/七、明日工作计划：\n\s+暂无/.test(md));
+  });
+});
