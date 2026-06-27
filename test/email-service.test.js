@@ -16,7 +16,8 @@ var EmailService = require('../service/email-service');
 // ------------------------------------------------------------
 function makeService(overrides) {
     var transporter = {
-        sendMail: function(opts) { return Promise.resolve({ messageId: 'fake-id' }); }
+        sendMail: function(opts) { return Promise.resolve({ messageId: 'fake-id' }); },
+        close: function() {}
     };
     var imapClient = {
         once: function() {},
@@ -172,10 +173,10 @@ describe('EmailService.convertToHtml()', function() {
         assert.include(html, '一、基本情况');
     });
 
-    it('数字编号行（一、1、2）包装为 normal-text', function() {
+    it('数字编号行包装为 work-item', function() {
         var svc = makeService();
         var html = svc.convertToHtml('1、这是工作内容');
-        assert.include(html, 'normal-text');
+        assert.include(html, 'work-item');
     });
 
     it('暂无 包装为 empty-text', function() {
@@ -270,7 +271,8 @@ describe('EmailService.sendMail()', function() {
         var capturedOpts = null;
         var svc = makeService({
             transporter: {
-                sendMail: function(opts) { capturedOpts = opts; return Promise.resolve({ messageId: 'id' }); }
+                sendMail: function(opts) { capturedOpts = opts; return Promise.resolve({ messageId: 'id' }); },
+                close: function() {}
             }
         });
 
@@ -283,7 +285,8 @@ describe('EmailService.sendMail()', function() {
         var capturedOpts = null;
         var svc = makeService({
             transporter: {
-                sendMail: function(opts) { capturedOpts = opts; return Promise.resolve({ messageId: 'id' }); }
+                sendMail: function(opts) { capturedOpts = opts; return Promise.resolve({ messageId: 'id' }); },
+                close: function() {}
             }
         });
 
@@ -307,7 +310,8 @@ describe('EmailService.sendMail()', function() {
     it('返回 success:true 和 messageId', async function() {
         var svc = makeService({
             transporter: {
-                sendMail: function(opts) { return Promise.resolve({ messageId: 'msg-123' }); }
+                sendMail: function(opts) { return Promise.resolve({ messageId: 'msg-123' }); },
+                close: function() {}
             }
         });
 
@@ -320,7 +324,8 @@ describe('EmailService.sendMail()', function() {
     it('transporter 抛异常时向上抛出', async function() {
         var svc = makeService({
             transporter: {
-                sendMail: function(opts) { return Promise.reject(new Error('SMTP error')); }
+                sendMail: function(opts) { return Promise.reject(new Error('SMTP error')); },
+                close: function() {}
             }
         });
 
@@ -336,7 +341,8 @@ describe('EmailService.sendMail()', function() {
         var saved = false;
         var svc = makeService({
             transporter: {
-                sendMail: function(opts) { return Promise.resolve({ messageId: 'id' }); }
+                sendMail: function(opts) { return Promise.resolve({ messageId: 'id' }); },
+                close: function() {}
             },
             imapClient: {
                 once: function() {},
