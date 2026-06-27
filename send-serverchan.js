@@ -91,4 +91,9 @@ function buildContent(status, logFilePath) {
 		console.log(`【Server酱推送】发生错误: ${error.message}`);
 		process.exit(1);
 	}
+
+	// 显式退出：通知脚本是一次性 CLI，成功后必须终止进程。
+	// 否则若底层 socket（如 axios/TLS）在容器环境中未及时关闭，
+	// 会阻止 Node 事件循环退出，导致青龙任务一直显示运行中。
+	process.exit(0);
 })();

@@ -212,4 +212,15 @@ if [ -n "$SKIP_REASON" ] && [ "$EXIT_CODE" -eq 0 ]; then
 	SKIP_STATUS_TEXT="跳过(${SKIP_REASON})"
 fi
 send_notification "$EXIT_CODE" "$SKIP_STATUS_TEXT"
+
+# 诊断标记：此行出现即说明 shell 已走到最后一步、即将退出。
+# 若青龙任务仍不停止但能看到下面这行，说明是退出后有子进程/孤儿残留（而非脚本本身卡住）。
+log_info "ql-task 全部步骤完成，退出码 ${EXIT_CODE}"
+if command -v ps >/dev/null 2>&1; then
+	log_info "残留进程检查（若出现非预期的 node/python 即为阻止任务结束的孤儿）:"
+	ps -ef 2>/dev/null | grep -E 'node |python|ql-task' | grep -v grep | while IFS= read -r _line; do
+		log_cmd_output "  $_line"
+	done || true
+fi
+
 exit "$EXIT_CODE"
