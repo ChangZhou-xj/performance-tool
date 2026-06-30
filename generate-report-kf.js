@@ -274,9 +274,10 @@ function formatReviewLine(record) {
 }
 
 function formatNoCommitDefectLine(record) {
+	const label = record.category || '问题';
 	const problem = record.taskContent || '暂无内容';
 	const reason = record.commitInfo || '暂无';
-	return `问题：${problem}  原因：${reason}`;
+	return `${label}：${problem}  原因：${reason}`;
 }
 
 function formatInProgressDemand(record) {
@@ -855,4 +856,5 @@ module.exports = {
 	groupNextPlanItems,
 	buildReportMarkdown,
 	buildWeekReportMarkdown,
+	formatNoCommitDefectLine,
 };
