@@ -1,25 +1,36 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-A8 工单查询脚本 - 纯 HTTP 版本（不依赖 Playwright）
+A8 工单查询脚本 - 纯 HTTP 版本（可选 Playwright 增强）
 
 从流程图中提取开发人员、支持人员和当前处理人信息。
 
 数据获取流程：
   1. 登录：POST /seeyon/main.do?method=login（DES 加密密码）
   2. 待办列表：GET listPending → 从 fillmaps JSON 获取 affairId/processId/caseId
-  3. 已办列表：GET listDone → 待办中找不到时回退到已办列表
-  4. 工单 summary：GET summary → 提取 wfDiagram_v
-  5. 流程图：GET showDiagram + wfDiagram_v → 解析 processXml/caseLogXml/caseWorkitemLogXml
-  6. 输出：开发人员 + 支持人员 + 当前处理人
+  3. 已办列表：GET listDone（默认每页50条）→ 待办中找不到时回退到已办列表
+  4. 撤销回退记录（HTTP API）：POST traceWorkflowManager.getColPageInfo
+  5. 撤销回退记录（Playwright 浏览器降级）：使用浏览器会话调用 AJAX API
+  6. 工单 summary：GET summary → 提取 wfDiagram_v
+  7. 流程图：GET showDiagram + wfDiagram_v → 解析 processXml/caseLogXml/caseWorkitemLogXml
+  8. 输出：开发人员 + 支持人员 + 当前处理人
 
 用法:
+  # 批量查询工单
   python3 a8-batch-query-api.py '{"ticketNos":["KFXQ-CX-xxx"],"loginUrl":"http://...","username":"xxx","password":"xxx"}'
   python3 a8-batch-query-api.py --file params.json
+
+  # 使用 Playwright 列出撤销回退记录（默认50条）
+  python3 a8-batch-query-api.py --list-stepback '{"loginUrl":"http://...","username":"xxx","password":"xxx"}'
+  python3 a8-batch-query-api.py --list-stepback '{"loginUrl":"http://...","username":"xxx","password":"xxx","rows":50}'
+
+  # 批量查询时启用 Playwright 撤销回退记录降级
+  python3 a8-batch-query-api.py --use-playwright-stepback '{"ticketNos":["..."],"loginUrl":"...","username":"...","password":"..."}'
 
 输出:
   RESULT:{"ticketNo":"xxx","developer":"张三","currentHandler":"李四","supportStaff":"王五"}
   RESULT:{"ticketNo":"yyy","developer":null,"currentHandler":null,"supportStaff":null}
+  STEPBACK:{"affairId":"...","subject":"...","trackType":"6",...}   (--list-stepback 模式)
 """
 
 import sys
@@ -209,8 +220,8 @@ class A8APIClient:
 
     # ─── 已办列表 ────────────────────────────────────────
 
-    def get_done_list(self, page=1, rows=200):
-        """获取已办列表，返回 fillmaps 中的 data 数组"""
+    def get_done_list(self, page=1, rows=50):
+        """获取已办列表，返回 fillmaps 中的 data 数组（默认每页50条）"""
         url = f"{self.base_url}/seeyon/collaboration/collaboration.do?method=listDone"
         resp = self.session.get(url, params={'page': page, 'rows': rows}, timeout=30)
         if resp.status_code != 200:
@@ -286,6 +297,130 @@ class A8APIClient:
         else:
             print(f"WARN: 撤销回退记录返回格式异常", file=sys.stderr)
             return []
+
+    # ─── 撤销回退记录（Playwright 浏览器方式）──────────────
+
+    def get_stepback_list_playwright(self, rows=50):
+        """使用 Playwright 浏览器查看撤销回退记录列表
+
+        复用 A8APIClient.login() 的 API 登录（DES 加密）获取 session cookies，
+        注入 Playwright 浏览器上下文，然后在浏览器中调用 AJAX API 获取撤销回退记录。
+
+        Args:
+            rows: 每页记录数，默认 50
+
+        Returns:
+            list: 撤销回退记录数据数组，每条包含 affairId/subject/
+                  trackType/trackTypeI18n/operationName/operationTime/
+                  senderName/senderTime 等字段
+        """
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError:
+            print("ERROR: playwright 未安装。Run: pip install playwright && playwright install chromium",
+                  file=sys.stderr)
+            return []
+
+        # 1. 先用 API 登录获取 session cookies（复用 DES 加密逻辑）
+        if not self.logged_in:
+            if not self.login():
+                print("ERROR: [Playwright] API 登录失败", file=sys.stderr)
+                return []
+
+        # 提取 requests session 的 cookies，转为 Playwright 格式
+        cookies = []
+        for cookie in self.session.cookies:
+            c = {
+                'name': cookie.name,
+                'value': cookie.value,
+                'domain': cookie.domain or '',
+                'path': cookie.path or '/',
+            }
+            if cookie.expires:
+                c['expires'] = cookie.expires
+            cookies.append(c)
+
+        # 尝试使用已有旧版 chromium（避免 install 超时）
+        chromium_paths = [
+            '/home/ubuntu/.cache/ms-playwright/chromium-1217/chrome-linux64/chrome',
+            '/home/ubuntu/.cache/ms-playwright/chromium-1150/chrome-linux64/chrome',
+            '/home/ubuntu/.cache/ms-playwright/chromium-1134/chrome-linux64/chrome',
+        ]
+        executable_path = None
+        for p in chromium_paths:
+            if os.path.exists(p):
+                executable_path = p
+                break
+
+        print(f"INFO: [Playwright] 启动浏览器获取撤销回退记录 (rows={rows}, cookies={len(cookies)})...",
+              file=sys.stderr)
+
+        with sync_playwright() as p:
+            launch_kwargs = {
+                'headless': True,
+                'args': ['--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+            }
+            if executable_path:
+                launch_kwargs['executable_path'] = executable_path
+                print(f"INFO: [Playwright] 使用已有 chromium: {executable_path}", file=sys.stderr)
+
+            browser = p.chromium.launch(**launch_kwargs)
+            context = browser.new_context()
+            # 注入 API 登录获得的 session cookies
+            context.add_cookies(cookies)
+            page = context.new_page()
+            page.set_default_timeout(30000)
+
+            try:
+                # 2. 导航到 A8 首页验证 cookie 有效性
+                page.goto(self.login_url)
+                page.wait_for_load_state('networkidle', timeout=20000)
+
+                # 检查是否已登录
+                if 'login_username' in page.content():
+                    print("ERROR: [Playwright] Cookie 登录失败，需要重新认证", file=sys.stderr)
+                    return []
+
+                print(f"INFO: [Playwright] Cookie 认证成功, url={page.url[:80]}", file=sys.stderr)
+
+                # 3. 在浏览器会话中调用 AJAX API 获取撤销回退记录
+                items = page.evaluate(f"""async () => {{
+                    const args = [
+                        {{page: 1, size: {rows}}},
+                        {{app: "1", govdocType: "", listType: "",
+                         paramTemplateIds: "", recordType: "stepBackRecord"}}
+                    ];
+                    const formData = new FormData();
+                    formData.append('managerMethod', 'getColPageInfo');
+                    formData.append('arguments', JSON.stringify(args));
+
+                    const resp = await fetch(
+                        '{self.base_url}/seeyon/ajax.do?method=ajaxAction&managerName=traceWorkflowManager',
+                        {{method: 'POST', body: formData}}
+                    );
+                    return await resp.json();
+                }}""")
+
+                # 解析结果
+                if isinstance(items, list):
+                    result = items
+                elif isinstance(items, dict):
+                    result = items.get('data', items.get('result', []))
+                else:
+                    result = []
+
+                print(f"INFO: [Playwright] 撤销回退记录 {len(result)} 条", file=sys.stderr)
+
+                # 打印示例字段
+                if result and len(result) > 0:
+                    sample = result[0] if isinstance(result[0], dict) else {}
+                    print(f"INFO: [Playwright] 示例字段: {list(sample.keys())[:10]}", file=sys.stderr)
+
+                return result
+
+            finally:
+                context.close()
+                browser.close()
 
     # ─── 流程图数据提取 ──────────────────────────────────
 
@@ -567,17 +702,21 @@ class A8APIClient:
 
     # ─── 工单查询 ────────────────────────────────────────
 
-    def query_workorder(self, ticket_no, pending_list=None, done_list=None):
+    def query_workorder(self, ticket_no, pending_list=None, done_list=None,
+                         use_playwright_stepback=False):
         """查询单个工单的开发人员和当前处理人
 
         查找顺序：
           1. 待办列表（listPending）— 工单尚未处理完毕
-          2. 已办列表（listDone）— 工单已流转完毕，支持人员和开发人员仍可从流程图提取
+          2. 已办列表（listDone）— 工单已流转完毕
+          3. 撤销回退记录（HTTP API）— 工单被撤销/回退
+          4. 撤销回退记录（Playwright 浏览器）— HTTP API 不可用时的降级
 
         Args:
             ticket_no: 工单编号（如 KFXQ-CX-2026052600025）
             pending_list: 已获取的待办列表（可选，避免重复请求）
             done_list: 已获取的已办列表（可选，避免重复请求）
+            use_playwright_stepback: 是否使用 Playwright 查询撤销回退记录
 
         Returns:
             dict: {"developer": "xxx", "currentHandler": "xxx", "supportStaff": "xxx"} 或 null 值
@@ -622,8 +761,8 @@ class A8APIClient:
                     break
 
             if not matched:
-                # 搜索更多页已办
-                for page in range(2, 11):
+                # 搜索更多页已办（最多3页）
+                for page in range(2, 4):
                     extra = self.get_done_list(page=page)
                     if not extra:
                         break
@@ -636,10 +775,10 @@ class A8APIClient:
                     if matched:
                         break
 
-        # ── 3. 从撤销回退记录查找（已办中也找不到时的回退） ──
+        # ── 3. 从撤销回退记录查找（HTTP API）──
         if not matched:
             print(f"INFO: 已办列表未找到 {ticket_no}，尝试撤销回退记录...", file=sys.stderr)
-            for page in range(1, 11):
+            for page in range(1, 3):
                 stepback_list = self.get_stepback_list(page=page, size=200)
                 if not stepback_list:
                     break
@@ -651,6 +790,18 @@ class A8APIClient:
                         break
                 if matched:
                     break
+
+        # ── 4. 从撤销回退记录查找（Playwright 浏览器方式）──
+        if not matched and use_playwright_stepback:
+            print(f"INFO: HTTP 撤销回退记录未找到 {ticket_no}，尝试 Playwright 方式...", file=sys.stderr)
+            stepback_pw = self.get_stepback_list_playwright(rows=50)
+            if stepback_pw:
+                for item in stepback_pw:
+                    subject = item.get('subject', '')
+                    if ticket_no in subject:
+                        matched = item
+                        open_from = 'listDone'
+                        break
 
         if not matched:
             print(f"WARN: 待办、已办和撤销回退记录均未找到工单 {ticket_no}", file=sys.stderr)
@@ -667,18 +818,42 @@ class A8APIClient:
 # ─── 主入口 ────────────────────────────────────────────
 
 def main():
-    """读取参数，登录 A8，批量查询工单"""
+    """读取参数，登录 A8，批量查询工单 或 列出撤销回退记录
+
+    用法:
+      # 批量查询工单
+      python3 a8-batch-query-api.py '{"ticketNos":["KFXQ-CX-xxx"],"loginUrl":"http://...","username":"xxx","password":"xxx"}'
+      python3 a8-batch-query-api.py --file params.json
+
+      # 使用 Playwright 列出撤销回退记录（50条）
+      python3 a8-batch-query-api.py --list-stepback '{"loginUrl":"http://...","username":"xxx","password":"xxx"}'
+
+      # 批量查询时启用 Playwright 撤销回退记录降级
+      python3 a8-batch-query-api.py --use-playwright-stepback '{"ticketNos":["..."],"loginUrl":"...","username":"...","password":"..."}'
+    """
     if len(sys.argv) < 2:
-        print("用法: python3 a8-batch-query-api.py '<JSON>' 或 --file params.json", file=sys.stderr)
+        print("用法: python3 a8-batch-query-api.py '<JSON>' 或 --file params.json 或 --list-stepback '<JSON>'",
+              file=sys.stderr)
         sys.exit(1)
 
-    # 解析参数
-    arg = sys.argv[1]
+    # 解析参数和动作
+    action = 'query'  # 默认动作：批量查询
+    use_playwright_stepback = False
+    arg_idx = 1
+
+    if sys.argv[1] == '--list-stepback':
+        action = 'list-stepback'
+        arg_idx = 2
+    elif sys.argv[1] == '--use-playwright-stepback':
+        use_playwright_stepback = True
+        arg_idx = 2
+
+    arg = sys.argv[arg_idx]
     if arg == '--file':
-        if len(sys.argv) < 3:
+        if len(sys.argv) <= arg_idx + 1:
             print("ERROR: --file 需要指定文件路径", file=sys.stderr)
             sys.exit(1)
-        with open(sys.argv[2], 'r', encoding='utf-8') as f:
+        with open(sys.argv[arg_idx + 1], 'r', encoding='utf-8') as f:
             params = json.load(f)
     else:
         params = json.loads(arg)
@@ -688,8 +863,12 @@ def main():
     username = params.get('username', '')
     password = params.get('password', '')
 
-    if not login_url or not ticketNos:
-        print("ERROR: 缺少 loginUrl 或 ticketNos", file=sys.stderr)
+    if not login_url:
+        print("ERROR: 缺少 loginUrl", file=sys.stderr)
+        sys.exit(1)
+
+    if action == 'query' and not ticketNos:
+        print("ERROR: query 模式缺少 ticketNos", file=sys.stderr)
         sys.exit(1)
 
     # 从 loginUrl 推导 base_url
@@ -705,6 +884,18 @@ def main():
             print(f"RESULT:{json.dumps({'ticketNo': ticket_no, 'developer': None, 'currentHandler': None})}")
         sys.exit(1)
 
+    # ── list-stepback 动作：使用 Playwright 列出撤销回退记录 ──
+    if action == 'list-stepback':
+        rows = params.get('rows', 50)
+        stepback_items = client.get_stepback_list_playwright(rows=rows)
+        if stepback_items:
+            for item in stepback_items:
+                print(f"STEPBACK:{json.dumps(item, ensure_ascii=False)}")
+        else:
+            print("STEPBACK:[]")
+        return
+
+    # ── query 动作：批量查询工单 ──
     # 获取待办列表和已办列表（预加载多页，避免每个工单重复请求）
     pending_list = client.get_pending_list()
     for page in range(2, 6):
@@ -713,18 +904,14 @@ def main():
             break
         pending_list.extend(extra)
 
-    done_list = client.get_done_list()
-    for page in range(2, 11):
-        extra = client.get_done_list(page=page)
-        if not extra:
-            break
-        done_list.extend(extra)
+    done_list = client.get_done_list()  # 只取1页，约200条
 
     print(f"INFO: 预加载完成 — 待办 {len(pending_list)} 条, 已办 {len(done_list)} 条", file=sys.stderr)
 
     # 查询每个工单
     for ticket_no in ticketNos:
-        result = client.query_workorder(ticket_no, pending_list, done_list)
+        result = client.query_workorder(ticket_no, pending_list, done_list,
+                                         use_playwright_stepback=use_playwright_stepback)
         output = {
             'ticketNo': ticket_no,
             'developer': result.get('developer') if result else None,
