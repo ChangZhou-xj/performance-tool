@@ -205,7 +205,7 @@ function isDefectCategory(category) {
 	return category.includes('缺陷') && category !== '缺陷转需求' && !isNoCommitDefect(category);
 }
 function isDemandCategory(category) {
-	return category.includes('需求') && category !== '缺陷转需求';
+	return category.includes('需求') && category !== '缺陷转需求' && !category.startsWith('代码迁移-');
 }
 
 function formatDefectSourceInfo(record) {
@@ -482,8 +482,8 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 	return markdown;
 }
 
-async function extractDeveloperReportData(type, targetDate) {
-	const workRecordPath = getWorkRecordPath();
+async function extractDeveloperReportData(type, targetDate, customWorkRecordPath) {
+	const workRecordPath = customWorkRecordPath || getWorkRecordPath();
 	const workbook = xlsx.readFile(workRecordPath);
 	const worksheet = workbook.Sheets['工作记录'];
 	const data = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
@@ -678,8 +678,13 @@ function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	markdown += buildSectionList([...reportData.nonPpDefects, ...reportData.nonPpInvalidDefects], '          ');
 
 	markdown += `二、其他：\n`;
-	if (reportData.noCommitDefects.length > 0) {
-		markdown += buildSectionList(reportData.noCommitDefects, '    ');
+	const otherItems = collectUniqueItems(
+		reportData.noCommitDefects,
+		reportData.migrations,
+		reportData.packs,
+	);
+	if (otherItems.length > 0) {
+		markdown += buildSectionList(otherItems, '    ');
 	} else {
 		markdown += `    暂无\n`;
 	}
