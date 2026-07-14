@@ -133,21 +133,22 @@ run_step() {
 	tmp_file="${TMPDIR:-/tmp}/ql-task.$$.$(date +%s).log"
 
 	log_info "$desc"
-	if "$@" > "$tmp_file" 2>&1; then
-		while IFS= read -r line || [ -n "$line" ]; do
-			log_cmd_output "$line"
-		done < "$tmp_file"
-		rm -f "$tmp_file"
-		return 0
-	fi
-
+	# 退出码必须在命令执行后立即捕获：若写在 `if ... fi`（无 else）之后，
+	# POSIX 规定 if 语句的退出状态为 0，会丢失命令真实的非零退出码，
+	# 导致失败被误报为成功、Server酱 通知误发"执行成功"。
+	"$@" > "$tmp_file" 2>&1
 	status="$?"
+
 	while IFS= read -r line || [ -n "$line" ]; do
 		log_cmd_output "$line"
 	done < "$tmp_file"
 	rm -f "$tmp_file"
-	log_error "命令执行失败，立即停止，退出码: ${status}"
-	return "$status"
+
+	if [ "$status" -ne 0 ]; then
+		log_error "命令执行失败，立即停止，退出码: ${status}"
+		return "$status"
+	fi
+	return 0
 }
 
 send_notification() {

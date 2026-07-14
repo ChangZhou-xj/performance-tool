@@ -141,6 +141,7 @@ class DownloadWorkRecord {
    * 1、清空源代码文件夹
    */
   static async main() {
+    let hasError = false;
     try {
       let repositoryPath = getWorkRecordPath();
       await removeFile(repositoryPath);
@@ -149,11 +150,21 @@ class DownloadWorkRecord {
       let docsStream = await DownloadWorkRecord.getDocsStream(downloadUrl);
       await DownloadWorkRecord.writeDocs(repositoryPath, docsStream);
     } catch (err) {
+      // 必须以非零退出码终止，否则 npm run report:day 中的 `&&` 不会短路，
+      // 会继续执行 generate-report-kf.js，因 excel 缺失报出误导性的 ENOENT。
+      hasError = true;
       console.error(err);
     } finally {
       console.info('----> 下载仓库excel数据结束');
     }
+    if (hasError) {
+      process.exit(1);
+    }
   }
 }
 
-DownloadWorkRecord.main();
+if (require.main === module) {
+  DownloadWorkRecord.main();
+}
+
+module.exports = { DownloadWorkRecord };

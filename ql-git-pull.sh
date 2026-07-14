@@ -66,16 +66,12 @@ run_cmd() {
   tmp_file="${TMPDIR:-/tmp}/ql-git-pull.$$.$(date +%s).log"
 
   log_info "${desc}"
+  # 退出码必须在命令执行后立即捕获：若写在 `if ... fi`（无 else）之后，
+  # POSIX 规定 if 语句的退出状态为 0，会丢失命令真实的非零退出码，
+  # 导致失败（含超时 status=124）被误报为成功、超时检测失效。
   if command -v timeout >/dev/null 2>&1; then
     log_info "  -> timeout: ${CMD_TIMEOUT}s"
-    if timeout "${CMD_TIMEOUT}" "$@" >"$tmp_file" 2>&1; then
-      while IFS= read -r line || [ -n "$line" ]; do
-        log_cmd_output "$line"
-      done < "$tmp_file"
-      rm -f "$tmp_file"
-      return 0
-    fi
-
+    timeout "${CMD_TIMEOUT}" "$@" >"$tmp_file" 2>&1
     status="$?"
     while IFS= read -r line || [ -n "$line" ]; do
       log_cmd_output "$line"
@@ -88,14 +84,7 @@ run_cmd() {
     return "$status"
   fi
 
-  if "$@" >"$tmp_file" 2>&1; then
-    while IFS= read -r line || [ -n "$line" ]; do
-      log_cmd_output "$line"
-    done < "$tmp_file"
-    rm -f "$tmp_file"
-    return 0
-  fi
-
+  "$@" >"$tmp_file" 2>&1
   status="$?"
   while IFS= read -r line || [ -n "$line" ]; do
     log_cmd_output "$line"
