@@ -22,7 +22,7 @@ const allowedTaskStatuses = new Set([
 	'任务完成',
 ]);
 
-const completedTaskStatuses = new Set(['开发完成']);
+const completedTaskStatuses = new Set(['开发完成', '任务完成']);
 const inProgressTaskStatuses = new Set(['进行中']);
 
 function getDateRange(type, targetDate) {
@@ -321,7 +321,12 @@ function pushUnique(list, record, formatter) {
 		category: record.category,
 		defectDetector: record.defectDetector,
 		ticketNo: record.ticketNo,
+		taskStatus: record.taskStatus,
 	});
+}
+
+function filterCompleted(items) {
+	return items.filter((item) => completedTaskStatuses.has(item.taskStatus));
 }
 
 function sortByDate(items) {
@@ -862,4 +867,5 @@ module.exports = {
 	buildReportMarkdown,
 	buildWeekReportMarkdown,
 	formatNoCommitDefectLine,
+	filterCompleted,
 };
