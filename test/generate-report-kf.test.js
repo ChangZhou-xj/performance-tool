@@ -244,3 +244,35 @@ describe('buildWeekReportMarkdown 完成状态过滤（week）', function () {
     assert.include(md, '问题修复（共1个）');
   });
 });
+
+describe('连带变化：任务完成等效开发完成', function () {
+  var tmpPath;
+
+  afterEach(function () {
+    if (tmpPath && fs.existsSync(tmpPath)) {
+      fs.unlinkSync(tmpPath);
+    }
+  });
+
+  it('日报·目标达成包含任务完成条目', async function () {
+    tmpPath = createMockWorkRecord([
+      makeRow({ 3: '需求', 4: '任务完成的需求条目', 11: '任务完成' }),
+    ]);
+    var data = await extractDeveloperReportData('day', new Date(2026, 6, 2), tmpPath);
+    assert.lengthOf(data.achievedItems, 1);
+    assert.equal(data.achievedItems[0].taskStatus, '任务完成');
+    assert.include(data.achievedItems[0].text, '任务完成的需求条目');
+  });
+
+  it('日报·任务完成的缺陷附加来源信息', async function () {
+    tmpPath = createMockWorkRecord([
+      makeRow({
+        3: '缺陷', 4: '任务完成的缺陷条目', 11: '任务完成',
+        14: '张三', 15: '2026年7月2日', 16: '测试部',
+      }),
+    ]);
+    var data = await extractDeveloperReportData('day', new Date(2026, 6, 2), tmpPath);
+    assert.lengthOf(data.achievedItems, 1);
+    assert.include(data.achievedItems[0].text, '缺陷引出人:张三');
+  });
+});
