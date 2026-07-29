@@ -425,8 +425,8 @@ function formatPercentage(value) {
 }
 
 function buildWeekSummary(reportData) {
-	const demandCount = reportData.demands.length + reportData.defectToDemands.length;
-	const defectCount = reportData.ppDefects.length + reportData.nonPpDefects.length;
+	const demandCount = filterCompleted([...reportData.demands, ...reportData.defectToDemands]).length;
+	const defectCount = filterCompleted([...reportData.ppDefects, ...reportData.nonPpDefects]).length;
 
 	return `● 需求开发（共${demandCount}个）\n● 问题修复（共${defectCount}个）\n`;
 }
@@ -449,10 +449,10 @@ function buildWeekFocus(reportData) {
 }
 
 function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
-	const defectItems = collectUniqueItems(
+	const defectItems = filterCompleted(collectUniqueItems(
 		reportData.ppDefects,
 		reportData.nonPpDefects,
-	);
+	));
 	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
 	const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
 
@@ -465,7 +465,7 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 	markdown += buildWeekFocus(reportData);
 	markdown += '\n';
 	markdown += '需求\n';
-	markdown += buildSectionList([...reportData.demands, ...reportData.defectToDemands], '');
+	markdown += buildSectionList(filterCompleted([...reportData.demands, ...reportData.defectToDemands]), '');
 	markdown += '\n';
 	markdown += '问题修复\n';
 	markdown += buildSectionList(defectItems, '');

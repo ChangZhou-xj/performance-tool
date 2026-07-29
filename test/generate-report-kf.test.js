@@ -5,7 +5,7 @@ var fs = require('fs');
 var path = require('path');
 var os = require('os');
 var xlsx = require('xlsx');
-var { filterCompleted, completedTaskStatuses, extractDeveloperReportData, buildReportMarkdown } = require('../generate-report-kf');
+var { filterCompleted, completedTaskStatuses, extractDeveloperReportData, buildReportMarkdown, buildWeekReportMarkdown } = require('../generate-report-kf');
 
 describe('completedTaskStatuses', function () {
 
@@ -183,5 +183,64 @@ describe('buildReportMarkdown 日报完成状态过滤（day）', function () {
     assert.notInclude(otherSection, '无提交缺陷B');
     assert.include(otherSection, '迁移A');
     assert.notInclude(otherSection, '打包A');
+  });
+});
+
+describe('buildWeekReportMarkdown 完成状态过滤（week）', function () {
+
+  function makeWeekData(overrides) {
+    return Object.assign({
+      month: 7,
+      monthlyDemandProgress: { month: 7, completedCount: 0, inProgressCount: 0 },
+      demands: [], defectToDemands: [], ppDefects: [], nonPpDefects: [],
+      ppInvalidDefects: [], nonPpInvalidDefects: [],
+      nextPlanItems: [],
+    }, overrides);
+  }
+
+  it('需求仅展示开发完成和任务完成', function () {
+    var data = makeWeekData({
+      demands: [
+        { key: 'd1', text: '需求A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'd2', text: '需求B', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildWeekReportMarkdown(data, null);
+    assert.include(md, '需求A');
+    assert.notInclude(md, '需求B');
+  });
+
+  it('问题修复仅展示开发完成和任务完成', function () {
+    var data = makeWeekData({
+      ppDefects: [
+        { key: 'p1', text: 'PP缺陷A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'p2', text: 'PP缺陷B', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+      nonPpDefects: [
+        { key: 'n1', text: '非PP缺陷A', taskStatus: '任务完成', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildWeekReportMarkdown(data, null);
+    assert.include(md, 'PP缺陷A');
+    assert.notInclude(md, 'PP缺陷B');
+    assert.include(md, '非PP缺陷A');
+  });
+
+  it('汇总计数为过滤后的数量', function () {
+    var data = makeWeekData({
+      demands: [
+        { key: 'd1', text: '需求A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'd2', text: '需求B', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+      ppDefects: [
+        { key: 'p1', text: 'PP缺陷A', taskStatus: '开发完成', date: '2026年7月6日' },
+      ],
+      nonPpDefects: [
+        { key: 'n1', text: '非PP缺陷A', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildWeekReportMarkdown(data, null);
+    assert.include(md, '需求开发（共1个）');
+    assert.include(md, '问题修复（共1个）');
   });
 });
