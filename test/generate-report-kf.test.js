@@ -5,7 +5,7 @@ var fs = require('fs');
 var path = require('path');
 var os = require('os');
 var xlsx = require('xlsx');
-var { filterCompleted, completedTaskStatuses, extractDeveloperReportData } = require('../generate-report-kf');
+var { filterCompleted, completedTaskStatuses, extractDeveloperReportData, buildReportMarkdown } = require('../generate-report-kf');
 
 describe('completedTaskStatuses', function () {
 
@@ -100,5 +100,88 @@ describe('monthlyDemandProgress.completedCount', function () {
     ]);
     var data = await extractDeveloperReportData('day', new Date(2026, 6, 2), tmpPath);
     assert.equal(data.monthlyDemandProgress.completedCount, 0);
+  });
+});
+
+describe('buildReportMarkdown 日报完成状态过滤（day）', function () {
+
+  function makeReportData(overrides) {
+    return Object.assign({
+      startDate: new Date(2026, 6, 6),
+      endDate: new Date(2026, 6, 6),
+      demands: [], defectToDemands: [], ppDefects: [], nonPpDefects: [],
+      ppInvalidDefects: [], nonPpInvalidDefects: [], noCommitDefects: [],
+      commits: [], reviews: [], migrations: [], packs: [],
+      achievedItems: [],
+      nextPlanItems: [],
+      inProgressDemands: [],
+      monthlyDemandProgress: { month: 7, completedCount: 0, inProgressCount: 0 },
+    }, overrides);
+  }
+
+  it('需求开发仅展示开发完成和任务完成', function () {
+    var data = makeReportData({
+      demands: [
+        { key: 'd1', text: '需求A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'd2', text: '需求B', taskStatus: '任务完成', date: '2026年7月6日' },
+        { key: 'd3', text: '需求C', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildReportMarkdown('day', data, null);
+    assert.include(md, '需求A');
+    assert.include(md, '需求B');
+    assert.notInclude(md, '需求C');
+  });
+
+  it('需求开发为空时取进行中需求前2条', function () {
+    var data = makeReportData({
+      demands: [],
+      inProgressDemands: [
+        { key: 'p1', text: '进行中需求1', taskStatus: '进行中', date: '2026年7月6日', plannedFinish: '2026年7月8日' },
+      ],
+    });
+    var md = buildReportMarkdown('day', data, null);
+    assert.include(md, '进行中需求1');
+  });
+
+  it('缺陷修复2.1/2.2仅展示开发完成和任务完成（含无效缺陷）', function () {
+    var data = makeReportData({
+      ppDefects: [
+        { key: 'p1', text: 'PP缺陷A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'p2', text: 'PP缺陷B', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+      ppInvalidDefects: [
+        { key: 'pi1', text: 'PP无效缺陷A', taskStatus: '任务完成', date: '2026年7月6日' },
+      ],
+      nonPpDefects: [
+        { key: 'n1', text: '非PP缺陷A', taskStatus: '开发完成', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildReportMarkdown('day', data, null);
+    assert.include(md, 'PP缺陷A');
+    assert.notInclude(md, 'PP缺陷B');
+    assert.include(md, 'PP无效缺陷A');
+    assert.include(md, '非PP缺陷A');
+  });
+
+  it('其他板块仅展示开发完成和任务完成', function () {
+    var data = makeReportData({
+      noCommitDefects: [
+        { key: 'n1', text: '无提交缺陷A', taskStatus: '开发完成', date: '2026年7月6日' },
+        { key: 'n2', text: '无提交缺陷B', taskStatus: '进行中', date: '2026年7月6日' },
+      ],
+      migrations: [
+        { key: 'm1', text: '迁移A', taskStatus: '任务完成', date: '2026年7月6日' },
+      ],
+      packs: [
+        { key: 'p1', text: '打包A', taskStatus: '测试中', date: '2026年7月6日' },
+      ],
+    });
+    var md = buildReportMarkdown('day', data, null);
+    var otherSection = md.slice(md.indexOf('二、其他：'), md.indexOf('三、'));
+    assert.include(otherSection, '无提交缺陷A');
+    assert.notInclude(otherSection, '无提交缺陷B');
+    assert.include(otherSection, '迁移A');
+    assert.notInclude(otherSection, '打包A');
   });
 });

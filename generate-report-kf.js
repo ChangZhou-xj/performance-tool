@@ -674,20 +674,20 @@ function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	let markdown = '';
 	markdown += `一、${periodLabel}工作内容：\n`;
 	markdown += `    1、需求开发：\n`;
-	const demandsForReport = [...reportData.demands, ...reportData.defectToDemands];
-	markdown += buildSectionList(demandsForReport.length > 0 ? demandsForReport : topInProgressDemands, '      ');
+	const completedDemands = filterCompleted([...reportData.demands, ...reportData.defectToDemands]);
+	markdown += buildSectionList(completedDemands.length > 0 ? completedDemands : topInProgressDemands, '      ');
 	markdown += `    2、缺陷修复\n`;
 	markdown += `       2.1（pp缺陷）\n`;
-	markdown += buildSectionList([...reportData.ppDefects, ...reportData.ppInvalidDefects], '          ');
+	markdown += buildSectionList(filterCompleted([...reportData.ppDefects, ...reportData.ppInvalidDefects]), '          ');
 	markdown += `       2.2（非pp缺陷）\n`;
-	markdown += buildSectionList([...reportData.nonPpDefects, ...reportData.nonPpInvalidDefects], '          ');
+	markdown += buildSectionList(filterCompleted([...reportData.nonPpDefects, ...reportData.nonPpInvalidDefects]), '          ');
 
 	markdown += `二、其他：\n`;
-	const otherItems = collectUniqueItems(
+	const otherItems = filterCompleted(collectUniqueItems(
 		reportData.noCommitDefects,
 		reportData.migrations,
 		reportData.packs,
-	);
+	));
 	if (otherItems.length > 0) {
 		markdown += buildSectionList(otherItems, '    ');
 	} else {

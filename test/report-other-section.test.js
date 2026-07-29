@@ -29,7 +29,7 @@ describe('buildReportMarkdown 二、其他：板块（day）', function () {
   it('代码迁移记录应显示在「二、其他：」中', function () {
     var data = makeReportData({
       migrations: [
-        { key: 'm1', text: '【代码迁移-需求】迁移代码【KFXQ-CX-001】', date: '2026年7月6日', ticketNo: 'KFXQ-CX-001' },
+        { key: 'm1', text: '【代码迁移-需求】迁移代码【KFXQ-CX-001】', date: '2026年7月6日', ticketNo: 'KFXQ-CX-001', taskStatus: '开发完成' },
       ],
     });
     var section = extractOtherSection(buildReportMarkdown('day', data, null));
@@ -40,7 +40,7 @@ describe('buildReportMarkdown 二、其他：板块（day）', function () {
   it('项目打包记录应显示在「二、其他：」中', function () {
     var data = makeReportData({
       packs: [
-        { key: 'p1', text: '【项目打包】打包发布【TJ001】', date: '2026年7月6日', ticketNo: 'TJ001' },
+        { key: 'p1', text: '【项目打包】打包发布【TJ001】', date: '2026年7月6日', ticketNo: 'TJ001', taskStatus: '开发完成' },
       ],
     });
     var section = extractOtherSection(buildReportMarkdown('day', data, null));
@@ -51,13 +51,13 @@ describe('buildReportMarkdown 二、其他：板块（day）', function () {
   it('无提交缺陷、代码迁移、项目打包应同时显示在「二、其他：」中', function () {
     var data = makeReportData({
       noCommitDefects: [
-        { key: 'n1', text: '程序缺陷（无提交）：问题A  原因：原因A', date: '2026年7月6日' },
+        { key: 'n1', text: '程序缺陷（无提交）：问题A  原因：原因A', date: '2026年7月6日', taskStatus: '开发完成' },
       ],
       migrations: [
-        { key: 'm1', text: '【代码迁移-需求】迁移代码【KFXQ-CX-001】', date: '2026年7月6日' },
+        { key: 'm1', text: '【代码迁移-需求】迁移代码【KFXQ-CX-001】', date: '2026年7月6日', taskStatus: '开发完成' },
       ],
       packs: [
-        { key: 'p1', text: '【项目打包】打包发布【TJ001】', date: '2026年7月6日' },
+        { key: 'p1', text: '【项目打包】打包发布【TJ001】', date: '2026年7月6日', taskStatus: '开发完成' },
       ],
     });
     var section = extractOtherSection(buildReportMarkdown('day', data, null));
