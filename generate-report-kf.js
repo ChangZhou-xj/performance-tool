@@ -552,7 +552,7 @@ async function extractDeveloperReportData(type, targetDate, customWorkRecordPath
 		const isDemand = isDemandCategory(record.category);
 		const isMonthDemandCompleted =
 			isDemand &&
-			allowedTaskStatuses.has(record.taskStatus) &&
+			completedTaskStatuses.has(record.taskStatus) &&
 			isDateInRange(regDate, monthStartDate, monthEndDate);
 		const isMonthDemandInProgress =
 			isDemand &&
