@@ -454,7 +454,7 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 		reportData.nonPpDefects,
 	));
 	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
-	const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
+	// const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
 
 	let markdown = '';
 	markdown += '领导好，本周工作内容如下：\n\n';
@@ -471,17 +471,19 @@ function buildWeekReportMarkdown(reportData, a8InfoMap = null) {
 	markdown += buildSectionList(defectItems, '');
 	markdown += '\n';
 	markdown += '未完成工作\n';
-	if (dockingItems.length === 0 && devItems.length === 0) {
+	// if (dockingItems.length === 0 && devItems.length === 0) {
+	if (nextPlanItems.length === 0) {
 		markdown += `  暂无\n`;
 	} else {
-		if (dockingItems.length > 0) {
-			markdown += `  项目对接：\n`;
-			markdown += buildSectionList(dockingItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
-		}
-		if (devItems.length > 0) {
-			markdown += `  开发工作：\n`;
-			markdown += buildSectionList(devItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
-		}
+		// if (dockingItems.length > 0) {
+		// 	markdown += `  项目对接：\n`;
+		// 	markdown += buildSectionList(dockingItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
+		// }
+		// if (devItems.length > 0) {
+		// 	markdown += `  开发工作：\n`;
+		// 	markdown += buildSectionList(devItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
+		// }
+		markdown += buildSectionList(nextPlanItems, '    ', sortByPlannedFinishPriority, a8InfoMap);
 	}
 
 	return markdown;
@@ -667,7 +669,7 @@ function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	const nextPlanLabel = type === 'day' ? '明日' : type === 'week' ? '下周' : '下月';
 	const achievedItems = collectUniqueItems(reportData.achievedItems);
 	const nextPlanItems = collectUniqueItems(reportData.nextPlanItems);
-	const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
+	// const { dockingItems, devItems } = groupNextPlanItems(nextPlanItems);
 	// 进行中的需求按计划完成日期排序，取前2条作为需求板块的备选
 	const topInProgressDemands = sortByPlannedFinishPriority([...reportData.inProgressDemands]).slice(0, 2);
 
@@ -707,17 +709,19 @@ function buildReportMarkdown(type, reportData, a8InfoMap = null) {
 	markdown += buildSectionList(achievedItems, '    ');
 
 	markdown += `七、${nextPlanLabel}工作计划：\n`;
-	if (dockingItems.length === 0 && devItems.length === 0) {
+	// if (dockingItems.length === 0 && devItems.length === 0) {
+	if (nextPlanItems.length === 0) {
 		markdown += `    暂无\n`;
 	} else {
-		if (dockingItems.length > 0) {
-			markdown += `    项目对接：\n`;
-			markdown += buildSectionList(dockingItems, '      ', sortByPlannedFinishPriority, a8InfoMap);
-		}
-		if (devItems.length > 0) {
-			markdown += `    开发工作：\n`;
-			markdown += buildSectionList(devItems, '      ', sortByPlannedFinishPriority, a8InfoMap);
-		}
+		// if (dockingItems.length > 0) {
+		// 	markdown += `    项目对接：\n`;
+		// 	markdown += buildSectionList(dockingItems, '      ', sortByPlannedFinishPriority, a8InfoMap);
+		// }
+		// if (devItems.length > 0) {
+		// 	markdown += `    开发工作：\n`;
+		// 	markdown += buildSectionList(devItems, '      ', sortByPlannedFinishPriority, a8InfoMap);
+		// }
+		markdown += buildSectionList(nextPlanItems, '      ', sortByPlannedFinishPriority, a8InfoMap);
 	}
 
 	return markdown;
