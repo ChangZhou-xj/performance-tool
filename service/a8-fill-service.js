@@ -70,7 +70,7 @@ async function fillWorkHoursForAccount(account, options = {}) {
     fs.writeFileSync(tmpFile, JSON.stringify(params), 'utf-8');
 
     const childPromise = new Promise((resolve) => {
-      const child = spawn('python3', [PYTHON_SCRIPT, '--file', tmpFile], {
+      const child = spawn('python3.12', [PYTHON_SCRIPT, '--file', tmpFile], {
         cwd: PROJECT_ROOT,
         timeout,
       });
