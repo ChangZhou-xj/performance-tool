@@ -337,6 +337,71 @@ node a.js "openid_1,openid_2"
 
 ---
 
+## A8 工时填报功能
+
+### 环境准备
+
+需要安装 Python 3 和 Playwright：
+
+```bash
+pip install playwright
+playwright install chromium
+```
+
+### 配置账号
+
+方式一：在 `.env` 中配置单账号：
+
+```env
+A8_WORK_USERNAME=1003854
+A8_WORK_PASSWORD=your_password
+A8_WORK_FILL_METHOD=template
+```
+
+方式二：创建 `a8-accounts.json` 批量配置（推荐用于多人）：
+
+```json
+[
+  {
+    "name": "张三",
+    "username": "1003854",
+    "password": "your_password",
+    "fillMethod": "template",
+    "enabled": true
+  }
+]
+```
+
+### 执行填报
+
+```bash
+# 单账号（读取 .env）
+npm run fill:a8-hours
+
+# 批量处理（读取 a8-accounts.json）
+npm run fill:a8-hours -- --all
+
+# 指定用户
+npm run fill:a8-hours -- --user 1003854
+
+# 指定日期补录
+npm run fill:a8-hours -- --date 2026-08-01
+```
+
+### 青龙面板定时任务
+
+```bash
+# 每天 18:00 自动填报（工作日）
+0 18 * * * cd /ql/data/scripts/performance-tool && node scripts/fill-a8-work-hours.js --all
+```
+
+### 日志与排障
+
+- 执行日志：`logs/YYYY-MM-DD-a8-fill.log`
+- 失败截图：`logs/error_{username}_{date}.png`
+
+---
+
 # 邮件功能使用说明（青龙面板）
 
 ## 快速开始
