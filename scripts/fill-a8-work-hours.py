@@ -30,11 +30,6 @@ def get_today():
     return datetime.now().strftime('%Y-%m-%d')
 
 
-def get_now():
-    """获取当前时间字符串 HH:MM:SS"""
-    return datetime.now().strftime('%H:%M:%S')
-
-
 def build_screenshot_path(username, date_str=None):
     """构建失败截图路径"""
     ensure_logs_dir()
@@ -50,10 +45,6 @@ def load_params_from_file(file_path):
 
 def print_result(result):
     """输出 RESULT 行，便于 Node.js 解析"""
-    # Windows 上 Python stdout 默认 GBK，Node.js 以 UTF-8 解码会导致中文乱码
-    if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
-        sys.stdout.reconfigure(encoding='utf-8')
-        sys.stderr.reconfigure(encoding='utf-8')
     print(f"RESULT:{json.dumps(result, ensure_ascii=False)}")
     sys.stdout.flush()
 
@@ -633,6 +624,11 @@ def fill_work_hours(params):
 
 
 if __name__ == '__main__':
+    # Windows 上 Python stdout 默认 GBK，Node.js 以 UTF-8 解码会导致中文乱码
+    if sys.platform == 'win32' and hasattr(sys.stdout, 'reconfigure'):
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+
     args = parse_args()
     params = load_params_from_file(args.file)
     result = fill_work_hours(params)

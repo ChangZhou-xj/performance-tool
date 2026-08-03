@@ -18,7 +18,6 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 get_today = module.get_today
-get_now = module.get_now
 build_screenshot_path = module.build_screenshot_path
 load_params_from_file = module.load_params_from_file
 
@@ -28,10 +27,6 @@ class TestUtils(unittest.TestCase):
     def test_get_today_format(self):
         today = get_today()
         self.assertRegex(today, r'^\d{4}-\d{2}-\d{2}$')
-
-    def test_get_now_format(self):
-        now = get_now()
-        self.assertRegex(now, r'^\d{2}:\d{2}:\d{2}$')
 
     def test_build_screenshot_path_contains_username_and_date(self):
         path = build_screenshot_path('1003854', '2026-08-03')

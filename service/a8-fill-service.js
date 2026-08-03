@@ -66,12 +66,11 @@ async function fillWorkHoursForAccount(account, options = {}) {
     `a8-fill-${Date.now()}-${account.username}.json`,
   );
 
-  let child;
   try {
     fs.writeFileSync(tmpFile, JSON.stringify(params), 'utf-8');
 
     const childPromise = new Promise((resolve) => {
-      child = spawn('python3', [PYTHON_SCRIPT, '--file', tmpFile], {
+      const child = spawn('python3', [PYTHON_SCRIPT, '--file', tmpFile], {
         cwd: PROJECT_ROOT,
         timeout,
       });
