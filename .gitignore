@@ -30,3 +30,11 @@ data/
 *.xlsx
 .claude/*
 .nyc_output/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Codegraph / SDD workspace
+.codegraph/
+.superpowers/
