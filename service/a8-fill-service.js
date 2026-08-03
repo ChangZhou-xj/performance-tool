@@ -31,6 +31,7 @@ async function fillWorkHoursForAccount(account, options = {}) {
     slowMo = 300,
     timeout = 300000,
     date,
+    dryRun = false,
   } = options;
 
   if (!account || !account.username || !account.password) {
@@ -54,6 +55,10 @@ async function fillWorkHoursForAccount(account, options = {}) {
 
   if (date) {
     params.date = date;
+  }
+
+  if (dryRun) {
+    params.dryRun = true;
   }
 
   const tmpFile = path.join(
