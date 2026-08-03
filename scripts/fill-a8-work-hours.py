@@ -67,20 +67,21 @@ def parse_args():
 
 def fill_work_hours(params):
     """核心填报流程：登录、门户、项目管理导航"""
+    url = params.get('url') or ''
+    username = params.get('username') or ''
+    password = params.get('password') or ''
+    name = params.get('name') or username
+
     if params.get('dryRun'):
         return {
             'success': True,
-            'account': params.get('name') or params.get('username'),
+            'account': name,
             'steps': ['dry-run 模式：跳过浏览器操作'],
             'screenshot': None,
         }
 
     from playwright.sync_api import sync_playwright
 
-    url = params.get('url') or ''
-    username = params.get('username') or ''
-    password = params.get('password') or ''
-    name = params.get('name') or username
     headless = params.get('headless', True)
     slow_mo = params.get('slowMo', 300)
 
@@ -552,6 +553,45 @@ def fill_work_hours(params):
                 form_page.wait_for_timeout(1000)
 
             steps.append('日期填写完成')
+
+            # 10. 发送前确认
+            final_check = form_page.evaluate('''() => {
+                const iframes = document.querySelectorAll('iframe');
+                for (const iframe of iframes) {
+                    try {
+                        const doc = iframe.contentDocument || iframe.contentWindow.document;
+                        if (!doc) continue;
+                        const dateSections = doc.querySelectorAll('section.cap4-date');
+                        for (const section of dateSections) {
+                            const titleEl = section.querySelector('.field-title');
+                            if (titleEl && titleEl.innerText.includes('工时日期')) {
+                                const input = section.querySelector('input');
+                                if (input) {
+                                    return { found: true, dateValue: input.value, title: titleEl.innerText.trim() };
+                                }
+                            }
+                        }
+                    } catch (e) {}
+                }
+                return { found: false };
+            }''')
+            print(f'发送前确认 - 工时日期: {final_check}', file=sys.stderr)
+            steps.append(f'发送前确认 - 工时日期: {final_check.get("dateValue", "未找到")}')
+
+            # 11. 发送
+            form_page.evaluate('''() => {
+                const masks = document.querySelectorAll('.mask');
+                masks.forEach(m => m.remove());
+                const spans = document.querySelectorAll('span');
+                for (const span of spans) {
+                    if (span.innerText === '发送' && span.id) {
+                        span.click();
+                        break;
+                    }
+                }
+            }''')
+            form_page.wait_for_timeout(10000)
+            steps.append('发送成功')
 
             context.close()
             browser.close()
