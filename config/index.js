@@ -24,10 +24,12 @@ const DEPARTMENT = process.env.DEPARTMENT
 const EXCLUDE_MEMBER = process.env.EXCLUDE_MEMBER
 
 // A8 工时填报配置
-const A8_WORK_URL = process.env.A8_WORK_URL || process.env.A8_LOGIN_URL || 'http://120.35.0.66:19995/wui/index.html#/?_key=vrtmcx';
-const A8_WORK_USERNAME = process.env.A8_WORK_USERNAME || process.env.A8_USERNAME || '';
+// 默认复用项目已有 A8 系统的账号和登录地址
+const A8_WORK_BASE_URL = process.env.A8_BASE_URL || 'http://120.35.0.67:28101';
+const A8_WORK_URL = process.env.A8_WORK_URL || process.env.A8_LOGIN_URL || `${A8_WORK_BASE_URL}/seeyon/main.do?method=main`;
+const A8_WORK_USERNAME = process.env.A8_WORK_USERNAME || process.env.A8_USERNAME || '1003854';
 const A8_WORK_PASSWORD = process.env.A8_WORK_PASSWORD || process.env.A8_PASSWORD || '';
-const A8_WORK_FILL_METHOD = process.env.A8_WORK_FILL_METHOD || 'template';
+const A8_WORK_FILL_METHOD = process.env.A8_WORK_FILL_METHOD || 'copy';
 const A8_WORK_HEADLESS = process.env.A8_WORK_HEADLESS !== 'false';
 const A8_WORK_SLOWMO = Number(process.env.A8_WORK_SLOWMO || '300');
 

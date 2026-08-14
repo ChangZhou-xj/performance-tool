@@ -30,6 +30,14 @@ def get_today():
     return datetime.now().strftime('%Y-%m-%d')
 
 
+def truncate_todo(text):
+    """截断待办标题：保留到「产品：xxx」为止，去掉「-支持人员：{支持人员确认}」尾巴。"""
+    idx = text.find('支持人员')
+    if idx != -1:
+        text = text[:idx].rstrip('-')
+    return text.strip()
+
+
 def build_screenshot_path(username, date_str=None):
     """构建失败截图路径"""
     ensure_logs_dir()
@@ -94,10 +102,11 @@ def fill_work_hours(params):
             page.wait_for_timeout(5000)
             steps.append('打开登录页')
 
-            # 2. 登录
-            page.fill('#loginid', username)
-            page.fill('#userpassword', password)
-            page.click('#submit')
+            # 2. 登录（Seeyon A8 V8 登录表单：login_username / login_password1 / login_button，
+            #    login_password 为页面 JS 加密后的隐藏字段，点击按钮后自动生成并提交）
+            page.fill('#login_username', username)
+            page.fill('#login_password1', password)
+            page.click('#login_button')
             page.wait_for_timeout(6000)
             steps.append('登录成功')
 
@@ -112,115 +121,60 @@ def fill_work_hours(params):
             page.wait_for_timeout(1000)
             steps.append('关闭弹窗')
 
-            # 4. 点击门户
-            page.wait_for_timeout(3000)
-            page.mouse.move(200, 40)
-            page.wait_for_timeout(500)
-
-            portal_info = page.evaluate('''() => {
-                const elements = document.querySelectorAll('*');
-                let results = [];
-                for (const el of elements) {
-                    const text = el.innerText ? el.innerText.trim() : '';
-                    if (text === '门户') {
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) {
-                            results.push({ text, top: rect.top, left: rect.left, width: rect.width });
-                        }
-                    }
+            # 3.5 抓取门户「待办中心」前两条待办，用于填充工时具体描述
+            page.wait_for_timeout(2000)
+            todo_raw = page.evaluate('''() => {
+                const items = document.querySelectorAll('div.colDiv.columnRowDiv');
+                const out = [];
+                for (const el of items) {
+                    const t = (el.innerText || '').trim();
+                    if (t) out.push(t);
+                    if (out.length >= 2) break;
                 }
-                return results;
+                return out;
             }''')
+            todos = [truncate_todo(t) for t in todo_raw]
+            steps.append(f'抓取待办 {len(todos)} 条')
+            if todos:
+                print(f'待办明细: {todos}', file=sys.stderr)
+            todo_text = '\n'.join(todos)
 
-            if portal_info and len(portal_info) > 0:
-                top_portal = min(portal_info, key=lambda x: x['top'])
-                page.mouse.click(top_portal['left'] + top_portal['width'] / 2, top_portal['top'] + 10)
+            # 4. 悬停展开左侧「工时管理」一级菜单（Seeyon A8 左侧菜单为 hover 展开）
             page.wait_for_timeout(3000)
-            steps.append('点击门户')
+            lev1 = page.locator('li.lev1Li > div.lev1Title > div.navText', has_text='工时管理').first
+            lev1.hover(timeout=10000)
+            page.wait_for_timeout(2000)
+            steps.append('悬停展开工时管理菜单')
 
-            # 5. 点击项目管理
-            page.wait_for_timeout(3000)
-            pm_clicked = False
-            try:
-                page.click('text=项目管理', timeout=10000)
-                pm_clicked = True
-            except Exception:
-                pass
-
-            if not pm_clicked:
-                pm_info = page.evaluate('''() => {
-                    const elements = document.querySelectorAll('*');
-                    for (const el of elements) {
-                        const text = el.innerText ? el.innerText.trim() : '';
-                        if (text === '项目管理') {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width > 0 && rect.height > 0) {
-                                return { found: true, left: rect.left, top: rect.top, width: rect.width, height: rect.height };
-                            }
-                        }
-                    }
-                    return { found: false };
-                }''')
-                if pm_info and pm_info.get('found'):
-                    page.mouse.click(pm_info['left'] + pm_info['width'] / 2, pm_info['top'] + pm_info['height'] / 2)
-                    pm_clicked = True
-
-            page.wait_for_timeout(10000)
-            steps.append('点击项目管理')
-
-            # 6. 切换到项目管理系统页面
-            pages = context.pages
-            pm_page = None
-            for p_obj in pages:
-                if 'seeyon' in p_obj.url:
-                    pm_page = p_obj
+            # 5. 点击二级菜单「[填写]个人工时报告」，会在新标签页打开表单
+            form_link = page.locator('li.lev2Li', has_text='个人工时报告')
+            clicked = False
+            for i in range(form_link.count()):
+                el = form_link.nth(i)
+                if el.is_visible():
+                    el.click(timeout=10000)
+                    clicked = True
                     break
+            if not clicked:
+                raise Exception('未找到可见的「个人工时报告」二级菜单')
+            page.wait_for_timeout(3000)
+            steps.append('点击个人工时报告')
 
-            if not pm_page:
-                page.wait_for_timeout(10000)
-                for p_obj in context.pages:
-                    if 'seeyon' in p_obj.url:
-                        pm_page = p_obj
-                        break
-
-            if not pm_page:
-                raise Exception('未能打开项目管理系统')
-
-            pm_page.wait_for_load_state('networkidle')
-            pm_page.wait_for_timeout(5000)
-            steps.append('切换到项目管理系统')
-
-            # 7. 点击工时管理
-            pm_page.wait_for_timeout(3000)
-            work_hour_click = pm_page.locator('text=工时管理').first
-            if work_hour_click.is_visible(timeout=5000):
-                work_hour_click.click()
-            pm_page.wait_for_timeout(5000)
-            steps.append('点击工时管理')
-
-            # 8. 点击个人工时报告
-            work_hour_manage = pm_page.locator('text=工时管理').first
-            if work_hour_manage.is_visible(timeout=5000):
-                work_hour_manage.click()
-                pm_page.wait_for_timeout(1000)
-
-            fill_report = pm_page.locator('text=个人工时报告').first
-            if fill_report.is_visible(timeout=5000):
-                fill_report.click()
-
-            pm_page.wait_for_timeout(5000)
-            all_pages = context.pages
-            form_page = all_pages[-1]
+            # 6. 切换到新打开的表单标签页
+            form_page = context.pages[-1]
             form_page.wait_for_load_state('networkidle')
-            form_page.wait_for_timeout(3000)
-            steps.append('打开个人工时报告')
+            form_page.wait_for_timeout(5000)
+            steps.append('切换到个人工时报告表单页')
 
             fill_method = params.get('fillMethod', 'template')
             steps.append(f'填写方式: {fill_method}')
 
             if fill_method == 'copy':
-                # 复制历史记录
-                form_page.wait_for_timeout(3000)
+                # 复制历史记录：等「我发起的数据」区异步渲染完成，避免时序竞态找不到 #dataRelation_body
+                try:
+                    form_page.wait_for_selector('#dataRelation_body', state='attached', timeout=30000)
+                except Exception:
+                    pass  # 下方 evaluate 会返回具体错误并触发截图
                 copy_result = form_page.evaluate('''() => {
                     const result = { success: false, message: '' };
                     const dataRelationBody = document.getElementById('dataRelation_body');
@@ -263,35 +217,38 @@ def fill_work_hours(params):
                 if not copy_result.get('success'):
                     raise Exception(copy_result.get('message', '复制历史记录失败'))
 
-                # 填写工时总体内容
-                fill_content_result = form_page.evaluate('''() => {
-                    const result = { success: false, message: '' };
-                    const iframes = document.querySelectorAll('iframe');
-                    for (const iframe of iframes) {
-                        try {
-                            const doc = iframe.contentDocument || iframe.contentWindow.document;
-                            if (!doc) continue;
-                            const allTextareas = doc.querySelectorAll('textarea');
-                            for (const textarea of allTextareas) {
-                                const placeholder = textarea.placeholder || '';
-                                if (placeholder.includes('整体描述工作进展') || placeholder.includes('如无则填写')) {
-                                    const currentValue = (textarea.value || '').trim();
-                                    if (!currentValue) {
-                                        textarea.value = '无';
-                                        textarea.dispatchEvent(new Event('input', { bubbles: true }));
-                                        textarea.dispatchEvent(new Event('change', { bubbles: true }));
-                                        result.success = true;
-                                        result.message = '已填写工时总体内容为"无"';
-                                        return result;
-                                    }
-                                }
-                            }
-                        } catch (e) {}
-                    }
-                    result.message = '未找到工时总体内容输入框或已有内容';
-                    return result;
-                }''')
-                print(f'填写结果: {fill_content_result}', file=sys.stderr)
+                # 填写工时总体内容（报告内容）为「无」，用 Playwright fill 触发 Vue 双向绑定
+                zw_frame = form_page.frame_locator('#zwIframe')
+                report_areas = zw_frame.locator('textarea[placeholder*="整体描述工作进展"]')
+                # 复制后表单会异步重渲染，等 textarea 渲染出来再填
+                try:
+                    report_areas.first.wait_for(state='visible', timeout=30000)
+                except Exception:
+                    pass
+                report_filled = False
+                for i in range(report_areas.count()):
+                    try:
+                        report_areas.nth(i).fill('无')
+                        report_filled = True
+                    except Exception:
+                        pass
+                if not report_filled:
+                    raise Exception('未找到报告内容输入框')
+                steps.append('已填写工时总体内容为"无"')
+
+                # 填写工时具体描述（项目工作内容表格），用抓取的待办覆盖
+                if todos:
+                    desc_areas = zw_frame.locator('textarea[placeholder*="工时描述"]')
+                    desc_filled = False
+                    for i in range(desc_areas.count()):
+                        try:
+                            desc_areas.nth(i).fill(todo_text)
+                            desc_filled = True
+                        except Exception:
+                            pass
+                    if not desc_filled:
+                        raise Exception('未找到工时描述输入框')
+                    steps.append('已填写工时具体描述')
 
             elif fill_method == 'template':
                 # 调用模板
@@ -314,12 +271,12 @@ def fill_work_hours(params):
                     const allLinks = iframeDoc.querySelectorAll('a[id^="tree_"]');
                     for (const link of allLinks) {
                         const txt = (link.innerText || '').trim();
-                        if (txt && txt.includes('工时报告')) {
+                        if (txt && (txt.includes('工时填报') || txt.includes('工时报告'))) {
                             link.click();
                             return { success: true, text: txt };
                         }
                     }
-                    return { success: false, error: '未找到工时报告模板' };
+                    return { success: false, error: '未找到工时填报模板' };
                 }''')
                 print(f'模板选择结果: {select_template_result}', file=sys.stderr)
 
@@ -581,7 +538,10 @@ def fill_work_hours(params):
                     }
                 }
             }''')
-            form_page.wait_for_timeout(10000)
+            try:
+                form_page.wait_for_timeout(10000)
+            except Exception:
+                pass  # 发送成功后 A8 会关闭表单页，等待超时/页面关闭属正常
             steps.append('发送成功')
 
             context.close()

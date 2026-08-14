@@ -99,7 +99,7 @@ Node.js 解析结果，写入 logs/YYYY-MM-DD-a8-fill.log
 
 ```env
 # A8 工时填报配置
-A8_WORK_URL=http://120.35.0.66:19995/wui/index.html#/?_key=vrtmcx
+A8_WORK_URL=http://120.35.0.67:28101/seeyon/main.do?method=main
 A8_WORK_USERNAME=1003854
 A8_WORK_PASSWORD=xxx
 A8_WORK_FILL_METHOD=template   # template 或 copy

@@ -350,13 +350,15 @@ playwright install chromium
 
 ### 配置账号
 
-方式一：在 `.env` 中配置单账号：
+方式一：在 `.env` 中配置单账号（未配置时默认复用 A8_USERNAME / A8_PASSWORD）：
 
 ```env
 A8_WORK_USERNAME=1003854
 A8_WORK_PASSWORD=your_password
 A8_WORK_FILL_METHOD=template
 ```
+
+> 提示：A8_WORK_URL 未配置时默认使用 `A8_LOGIN_URL`，即 `http://120.35.0.67:28101/seeyon/main.do?method=main`。
 
 方式二：创建 `a8-accounts.json` 批量配置（推荐用于多人）：
 
