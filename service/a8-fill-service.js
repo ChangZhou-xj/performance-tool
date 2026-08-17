@@ -22,6 +22,7 @@ const PYTHON_SCRIPT = path.join(PROJECT_ROOT, 'scripts', 'fill-a8-work-hours.py'
  * @param {number} [options.slowMo=300] Playwright slowMo
  * @param {number} [options.timeout=300000] Python 进程超时（毫秒）
  * @param {string} [options.date] 指定填报日期 YYYY-MM-DD
+ * @param {string} [options.pythonCmd='python3'] Python 解释器命令
  * @returns {Promise<{success: boolean, account: string, error?: string, screenshot?: string, steps?: string[]}>}
  */
 async function fillWorkHoursForAccount(account, options = {}) {
@@ -32,6 +33,7 @@ async function fillWorkHoursForAccount(account, options = {}) {
     timeout = 300000,
     date,
     dryRun = false,
+    pythonCmd = 'python3',
   } = options;
 
   if (!account || !account.username || !account.password) {
@@ -70,7 +72,7 @@ async function fillWorkHoursForAccount(account, options = {}) {
     fs.writeFileSync(tmpFile, JSON.stringify(params), 'utf-8');
 
     const childPromise = new Promise((resolve) => {
-      const child = spawn('python3.12', [PYTHON_SCRIPT, '--file', tmpFile], {
+      const child = spawn(pythonCmd, [PYTHON_SCRIPT, '--file', tmpFile], {
         cwd: PROJECT_ROOT,
         timeout,
       });

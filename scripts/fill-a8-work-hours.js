@@ -10,8 +10,10 @@ const {
   A8_WORK_FILL_METHOD,
   A8_WORK_HEADLESS,
   A8_WORK_SLOWMO,
+  A8_WORK_PYTHON,
 } = require('../config');
 const { fillWorkHoursForAccount } = require('../service/a8-fill-service');
+const { getServerChanConfig, sendServerChanNotify } = require('../send-serverchan');
 
 const ACCOUNTS_FILE = path.join(__dirname, '..', 'a8-accounts.json');
 const LOGS_DIR = path.join(__dirname, '..', 'logs');
@@ -75,6 +77,27 @@ function saveResult(entries, accountName, success, details = {}) {
   };
   entries.push(entry);
   saveLogEntries(entries);
+}
+
+async function sendNotification(entries, successCount, total) {
+  const { sendKey } = getServerChanConfig();
+  if (!sendKey) {
+    logMessage(entries, '未配置 Server酱密钥 (SERVERCHAN_KEY / SCTKEY / SCKEY)，跳过通知');
+    return;
+  }
+
+  const status = successCount === total ? '成功' : `失败(${successCount}/${total})`;
+  logMessage(entries, `发送 Server酱 通知: ${status}`);
+  try {
+    await sendServerChanNotify({
+      status,
+      logFilePath: getLogFilePath(),
+      titlePrefix: process.env.SERVERCHAN_TITLE_PREFIX || 'A8工时填报',
+    });
+    logMessage(entries, 'Server酱 通知发送成功');
+  } catch (err) {
+    logMessage(entries, `Server酱 通知忽略: ${err.message}`);
+  }
 }
 
 function loadAccounts() {
@@ -183,6 +206,7 @@ async function main() {
     url: A8_WORK_URL,
     headless: A8_WORK_HEADLESS,
     slowMo: A8_WORK_SLOWMO,
+    pythonCmd: A8_WORK_PYTHON,
     date,
   };
 
@@ -214,6 +238,11 @@ async function main() {
   logMessage(entries, `总计: ${successCount}/${results.length} 成功, 耗时: ${duration}秒`);
   logMessage(entries, '========== A8 工时填报结束 ==========');
   saveLogEntries(entries);
+
+  // 由 ql-task-a8-fill.sh 驱动时由包装脚本统一发送通知，避免重复推送
+  if (process.env.A8_NO_NOTIFY !== '1') {
+    await sendNotification(entries, successCount, results.length);
+  }
 
   process.exit(successCount === results.length ? 0 : 1);
 }
