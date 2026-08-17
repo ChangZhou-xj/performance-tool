@@ -99,10 +99,17 @@ async function fillWorkHoursForAccount(account, options = {}) {
 
       child.on('close', (code) => {
         if (code !== 0) {
+          const detail = stderr || stdout || '无输出';
+          let error = `Python 进程异常退出 (code=${code}): ${detail}`;
+          // 常见环境问题：青龙首次部署缺 Playwright 依赖
+          if (/ModuleNotFoundError|No module named|playwright/i.test(detail)) {
+            error += '（提示：青龙首次使用请先运行 npm run setup:a8 安装 Playwright；'
+              + '或已装专用 Python 时设置 A8_WORK_PYTHON 指向它）';
+          }
           resolve({
             success: false,
             account: account.name || account.username,
-            error: `Python 进程异常退出 (code=${code}): ${stderr || stdout || '无输出'}`,
+            error,
             screenshot: null,
           });
           return;
