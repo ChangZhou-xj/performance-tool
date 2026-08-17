@@ -4,10 +4,9 @@ set -eu
 # install-a8-playwright.sh
 # 青龙面板一次性初始化：为 A8 工时填报安装 Python Playwright 及 Chromium。
 # - 与 ql-task-a8-fill.sh 一致，使用 A8_WORK_PYTHON（默认 python3）指向的解释器。
-# - pip 源：默认用系统 pip 配置；可通过环境变量 A8_PIP_INDEX 指定 PyPI 镜像。
-#   （国内环境默认源常因网络/"from versions: none" 失败，可设
-#    A8_PIP_INDEX=https://pypi.tuna.tsinghua.edu.cn/simple）
-# - 未显式指定 A8_PIP_INDEX 时，默认源安装失败会自动回退清华镜像。
+# - pip 源：依次尝试 A8_PIP_INDEX（若设置）、阿里云、清华、腾讯云、华为云、官方 pypi，
+#   取第一个能装到 playwright 的源；并用 --no-cache-dir 规避陈旧索引缓存导致的 “from versions: none”
+#   （青龙默认常是阿里云镜像，若返回空版本，多半是该镜像缓存未同步 playwright，需换源）。
 
 PY="${A8_WORK_PYTHON:-python3}"
 
@@ -29,22 +28,56 @@ echo ">>> 当前 pip 索引配置（供排查）："
 # 显式关闭 errexit 以按返回值判断安装是否成功，避免 set -e 在 if 条件中吞掉退出码
 do_pip_install() {
 	set +e
-	"$PY" -m pip install --upgrade playwright "$@"
+	"$PY" -m pip install --upgrade playwright --no-cache-dir "$@"
 	status=$?
 	set -e
 	return "$status"
 }
 
-if do_pip_install ${A8_PIP_INDEX:+-i "$A8_PIP_INDEX"}; then
-	echo ">>> playwright 安装成功"
-else
-	if [ -z "${A8_PIP_INDEX:-}" ] && do_pip_install -i "https://pypi.tuna.tsinghua.edu.cn/simple"; then
-		echo ">>> 默认源安装失败，已通过清华大学 PyPI 镜像安装成功（可设 A8_PIP_INDEX 固定该镜像）"
-	else
-		echo "[ERROR] playwright 安装失败。" >&2
-		echo "[ERROR] 请在青龙环境变量设置 A8_PIP_INDEX=<可用 PyPI 镜像地址> 后重试，或排查容器网络。" >&2
-		exit 1
+echo ">>> 清理 pip 缓存（规避陈旧索引缓存导致的 from versions: none 报错）"
+"$PY" -m pip cache purge 2>/dev/null || true
+
+# 候选源：A8_PIP_INDEX（若设置）置顶，其余按国内常用镜像排序，最后官方 pypi
+CANDIDATES=""
+for ix in \
+	"${A8_PIP_INDEX:-}" \
+	"https://mirrors.aliyun.com/pypi/simple" \
+	"https://pypi.tuna.tsinghua.edu.cn/simple" \
+	"https://mirrors.cloud.tencent.com/pypi/simple" \
+	"https://repo.huaweicloud.com/repository/pypi/simple" \
+	"https://pypi.org/simple"
+do
+	[ -n "$ix" ] || continue
+	case "|${CANDIDATES}|" in
+		*"|${ix}|"*) ;;
+		*) CANDIDATES="${CANDIDATES}${CANDIDATES:+|}|${ix}" ;;
+	esac
+done
+
+echo ">>> 依次尝试 pip 源安装 playwright："
+installed=0
+for ix in $(printf '%s' "$CANDIDATES" | tr '|' '\n'); do
+	[ -n "$ix" ] || continue
+	echo "  [尝试] $ix"
+	if do_pip_install -i "$ix"; then
+		echo ">>> playwright 已通过 $ix 安装成功"
+		installed=1
+		break
 	fi
+	echo "  [失败] $ix"
+done
+
+if [ "$installed" -ne 1 ]; then
+	echo "[ERROR] playwright 在所有候选源均未能安装。" >&2
+	echo "[ERROR] 提示：若 pip 能刷到自身升级但找不到 playwright，多半是容器架构不被支持，而非镜像问题。" >&2
+	echo "[INFO] 平台信息（供排查）：" >&2
+	{
+		uname -m 2>/dev/null
+		"$PY" -c "import sysconfig; print('sysconfig:', sysconfig.get_platform())" 2>/dev/null || true
+		"$PY" -m pip debug --verbose 2>/dev/null | sed -n -e '/^Compatible tags/p'
+	} >&2 || true
+	echo "[HINT] playwright 仅支持 x86_64 / arm64 等平台；若此处显示 armv7/i686 等，则无法在容器内安装，需改用支持平台或换 requests 方案。" >&2
+	exit 1
 fi
 
 echo ">>> 安装 Chromium 浏览器"
