@@ -252,7 +252,6 @@ async function sendDailyReportEmail() {
       console.log('抄送:', finalCc.join(', '));
     }
     console.log('====================================\n');
-
   } catch (error) {
     console.error('\n====================================');
     console.error('❌ 发送邮件失败');
@@ -264,4 +263,17 @@ async function sendDailyReportEmail() {
 }
 
 // 执行发送
-sendDailyReportEmail();
+sendDailyReportEmail()
+  .then(() => {
+    // 显式退出：SMTP/IMAP 连接可能留下未清理的 socket handle，
+    // 导致 Node 事件循环无法自然结束，青龙任务持续显示“运行中”。
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('\n====================================');
+    console.error('❌ 发送邮件失败');
+    console.error('====================================');
+    console.error('错误信息:', error.message);
+    console.error('====================================\n');
+    process.exit(1);
+  });

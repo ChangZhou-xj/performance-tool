@@ -160,11 +160,17 @@ class DownloadWorkRecord {
     if (hasError) {
       process.exit(1);
     }
+    return false;
   }
 }
 
 if (require.main === module) {
-  DownloadWorkRecord.main();
+  DownloadWorkRecord.main().then((hasError) => {
+    process.exit(hasError ? 1 : 0);
+  }).catch((err) => {
+    console.error(err);
+    process.exit(1);
+  });
 }
 
 module.exports = { DownloadWorkRecord };

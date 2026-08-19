@@ -533,15 +533,15 @@ node send-email.js
 
 ```bash
 # 拉取镜像
-docker pull whyour/qinglong:latest
+docker pull whyour/qinglong:debian
 
 # 创建并启动容器（示例映射端口 5700）
 docker run -dit \
-  --name qinglong \
+  -v /opt/ql/data:/ql/data \
   -p 5700:5700 \
-  -v /ql/data:/ql/data \
+  --name qinglong-debian \
   --restart unless-stopped \
-  whyour/qinglong:latest
+  whyour/qinglong:debian
 ```
 
 ### 3. 初始化并登录面板
@@ -562,7 +562,7 @@ docker run -dit \
 
 ```bash
 # 进入容器
-docker exec -it qinglong bash
+docker exec -it qinglong-debian bash
 
 # 进入脚本目录
 cd /ql/data/scripts
@@ -604,13 +604,16 @@ docker stop qinglong
 docker rm qinglong
 
 # 拉取新镜像并重新启动
-docker pull whyour/qinglong:latest
+
+
+docker pull whyour/qinglong:debian
+
 docker run -dit \
-  --name qinglong \
+  -v /opt/ql/data:/ql/data \
   -p 5700:5700 \
-  -v /ql/data:/ql/data \
+  --name qinglong-debian \
   --restart unless-stopped \
-  whyour/qinglong:latest
+  whyour/qinglong:debian
 ```
 
 ## 工作日智能判断
@@ -758,5 +761,4 @@ await emailService.sendDailyReport({
 ### 批量发送不同内容
 
 可以配置多个任务，针对不同的收件人发送不同的报告内容。
-
 

@@ -7,6 +7,8 @@ set -eu
 # - pip 源：依次尝试 A8_PIP_INDEX（若设置）、阿里云、清华、腾讯云、华为云、官方 pypi，
 #   取第一个能装到 playwright 的源；并用 --no-cache-dir 规避陈旧索引缓存导致的 “from versions: none”
 #   （青龙默认常是阿里云镜像，若返回空版本，多半是该镜像缓存未同步 playwright，需换源）。
+# - 系统依赖：根据容器发行版（apt 或 apk）显式安装 Chromium 所需系统库，安装后必须验证浏览器
+#   能正常启动；若验证失败则脚本以非零退出码终止，避免“装完却跑不起来”的误导。
 
 PY="${A8_WORK_PYTHON:-python3}"
 
@@ -140,11 +142,134 @@ if [ "$pw_status" -ne 0 ]; then
 	}
 fi
 
-echo ">>> 安装浏览器系统依赖（青龙容器内需要；失败可在宿主机自行安装对应依赖库）"
-if "$PY" -m playwright install-deps chromium; then
-	echo ">>> 系统依赖安装完成"
+# ---------------------------------------------------------------------------
+# 安装浏览器系统依赖（青龙容器内常见失败点，必须显式处理并提供降级方案）
+# ---------------------------------------------------------------------------
+install_apt_deps() {
+	# Debian / Ubuntu 系列：apt-get 可安装时直接安装 Chromium 所需系统库
+	if command -v apt-get >/dev/null 2>&1; then
+		echo ">>> 检测到 apt-get，尝试安装 Chromium 系统依赖包"
+		apt-get update -qq >/dev/null 2>&1 || true
+		apt-get install -y --no-install-recommends \
+			libglib2.0-0 \
+			libnss3 \
+			libatk1.0-0 \
+			libatk-bridge2.0-0 \
+			libcups2 \
+			libdrm2 \
+			libxkbcommon0 \
+			libxcomposite1 \
+			libxdamage1 \
+			libxfixes3 \
+			libxrandr2 \
+			libgbm1 \
+			libpango-1.0-0 \
+			libcairo2 \
+			libasound2 \
+			fonts-liberation \
+			libappindicator3-1 \
+			libcurl3-gnutls \
+		>/dev/null 2>&1 || return 1
+		return 0
+	fi
+	return 1
+}
+
+install_apk_deps() {
+	# Alpine 系列：Playwright 官方 Linux 浏览器为 glibc 构建，musl 环境通常无法直接运行。
+	# 安装系统 chromium 包，并引导使用 PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH。
+	if command -v apk >/dev/null 2>&1; then
+		echo ">>> 检测到 apk（Alpine 系），安装系统 chromium 包"
+		apk add --no-cache \
+			chromium \
+			chromium-chromedriver \
+			nss \
+			freetype \
+			harfbuzz \
+			ca-certificates \
+			ttf-freefont \
+		>/dev/null 2>&1 || return 1
+		return 0
+	fi
+	return 1
+}
+
+echo ">>> 安装浏览器系统依赖"
+deps_ok=0
+
+# 1) 优先使用 Playwright 自带的 install-deps（最完整，但某些精简容器无 apt 权限会失败）
+set +e
+if "$PY" -m playwright install-deps chromium >/dev/null 2>&1; then
+	set -e
+	echo ">>> playwright install-deps 成功"
+	deps_ok=1
 else
-	echo "[WARN] install-deps 失败：若 Chromium 无法启动，请按报错在青龙容器/宿主机安装对应系统库" >&2
+	set -e
+	echo "[WARN] playwright install-deps 失败，将按发行版手动安装系统依赖..." >&2
+fi
+
+# 2) install-deps 失败时，按包管理器显式安装最小依赖集合
+if [ "$deps_ok" -ne 1 ]; then
+	if install_apt_deps; then
+		deps_ok=1
+	elif install_apk_deps; then
+		deps_ok=1
+	else
+		echo "[WARN] 未找到可识别的包管理器（apt-get/apk），无法自动安装系统依赖" >&2
+	fi
+fi
+
+# 3) 校验浏览器能否真正启动。这是防止“依赖安装提示成功但运行时缺库”的最后一道防线。
+echo ">>> 校验 Chromium 能否正常启动"
+verify_script="${TMPDIR:-/tmp}/a8-pw-verify-$$.py"
+cat > "$verify_script" <<'PYEOF'
+import sys
+from playwright.sync_api import sync_playwright
+
+try:
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True)
+        browser.close()
+        print('BROWSER_OK')
+        sys.exit(0)
+except Exception as e:
+    print(f'BROWSER_FAIL: {e}')
+    sys.exit(1)
+PYEOF
+
+verify_status=1
+browser_ok=0
+set +e
+verify_output=$("$PY" "$verify_script" 2>&1)
+verify_status=$?
+set -e
+rm -f "$verify_script"
+
+if [ "$verify_status" -eq 0 ] && printf '%s' "$verify_output" | grep -q 'BROWSER_OK'; then
+	browser_ok=1
+fi
+
+if [ "$browser_ok" -eq 1 ]; then
+	echo ">>> Chromium 启动验证通过"
+else
+	echo "[ERROR] Chromium 无法启动，错误信息：" >&2
+	printf '%s\n' "$verify_output" >&2 || true
+
+	# Alpine 特殊提示：系统 chromium 路径需通过环境变量显式指定
+	if command -v apk >/dev/null 2>&1 && [ -x /usr/bin/chromium-browser ]; then
+		echo "[HINT] 当前为 Alpine 容器，Playwright 自带 Chromium 可能不兼容 musl。" >&2
+		echo "[HINT] 请在使用前执行：export PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser" >&2
+		echo "[HINT] 或在 .env 文件中加入：PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser" >&2
+	fi
+
+	# 通用手动安装提示
+	echo "[HINT] 若容器无权限自动安装依赖，可在宿主机/容器内手动执行对应命令后重试：" >&2
+	if command -v apt-get >/dev/null 2>&1; then
+		echo "    apt-get update && apt-get install -y libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libpango-1.0-0 libcairo2 libasound2" >&2
+	elif command -v apk >/dev/null 2>&1; then
+		echo "    apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont" >&2
+	fi
+	exit 1
 fi
 
 echo ">>> 自检：导入 playwright"

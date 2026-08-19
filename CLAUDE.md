@@ -11,6 +11,9 @@ npm run report:week            # 生成周报
 npm run send-email             # 发送日报邮件（会检查是否工作日）
 npm run generate-performance   # 生成绩效评估表
 npm run validate-performance   # 校验绩效数据
+npm run fill:a8-hours          # A8 工时填报
+npm run ql:a8-fill             # A8 工时填报（青龙包装脚本：工作日判断 + Server酱通知）
+npm run setup:a8               # 青龙首次部署：安装 Playwright 依赖到 A8_WORK_PYTHON 指向的解释器
 ```
 
 环境变量需先配置 `.env`（参考 `.env.example`）。

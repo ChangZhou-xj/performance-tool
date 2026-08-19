@@ -848,6 +848,7 @@ if (require.main === module) {
 		}
 
 		await generateReport(type, targetDate);
+		process.exit(0);
 	})().catch((err) => {
 		console.error('❌ 执行失败:', err);
 		process.exit(1);
