@@ -170,11 +170,19 @@ def fill_work_hours(params):
             steps.append(f'填写方式: {fill_method}')
 
             if fill_method == 'copy':
-                # 复制历史记录：等「我发起的数据」区异步渲染完成，避免时序竞态找不到 #dataRelation_body
+                # 复制历史记录：等「我发起的数据」区异步渲染完成，避免时序竞态找不到历史记录。
+                # 注意：必须等实际记录条目 li（async XHR 填充），不能只等容器 #dataRelation_body——
+                # 容器一开始就在 DOM，state='attached' 立刻返回，此时记录还没渲染，evaluate 会误判为无记录。
                 try:
-                    form_page.wait_for_selector('#dataRelation_body', state='attached', timeout=30000)
+                    form_page.wait_for_selector(
+                        '#dataRelation_body ul.dr_item > li.list_li',
+                        state='visible',
+                        timeout=30000,
+                    )
                 except Exception:
-                    pass  # 下方 evaluate 会返回具体错误并触发截图
+                    # 等待超时：要么真无历史记录，要么选择器与现网 DOM 不符
+                    #（记录可能渲染成别的结构）。交给下方 evaluate 收集证据并报错/截图。
+                    pass
                 copy_result = form_page.evaluate('''() => {
                     const result = { success: false, message: '' };
                     const dataRelationBody = document.getElementById('dataRelation_body');
@@ -184,7 +192,14 @@ def fill_work_hours(params):
                     }
                     const firstLi = dataRelationBody.querySelector('ul.dr_item > li.list_li');
                     if (!firstLi) {
-                        result.message = '未找到历史记录';
+                        // 诊断：dump「我发起的数据」区实际结构，区分「真无记录」与「选择器不匹配」
+                        const ul = dataRelationBody.querySelector('ul.dr_item');
+                        const liCount = ul ? ul.querySelectorAll(':scope > li').length : 0;
+                        const htmlLen = (dataRelationBody.innerHTML || '').length;
+                        const allLi = dataRelationBody.querySelectorAll('li').length;
+                        const txt = ((dataRelationBody.innerText || '').replace(/\s+/g, ' ')).slice(0, 120);
+                        result.message = '未找到历史记录(ul=' + !!ul + ', dr_item_li=' + liCount
+                            + ', 全部li=' + allLi + ', htmlLen=' + htmlLen + ', 文本="' + txt + '")';
                         return result;
                     }
                     const recordTitle = firstLi.getAttribute('title');
