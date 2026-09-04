@@ -162,7 +162,11 @@ def fill_work_hours(params):
 
             # 6. 切换到新打开的表单标签页
             form_page = context.pages[-1]
-            form_page.wait_for_load_state('networkidle')
+            # 只等 domcontentloaded（HTML 解析完成）。不能等 load/networkidle：
+            # 二者依赖页面所有子资源加载完成，A8 服务端慢时有挂起请求会导致
+            # load 永不触发，30s 超时（2026-09-04 实测两种签名各失败一次）。
+            # 内容就绪由下方各填报分支的条件等待保证。
+            form_page.wait_for_load_state('domcontentloaded')
             form_page.wait_for_timeout(5000)
             steps.append('切换到个人工时报告表单页')
 
