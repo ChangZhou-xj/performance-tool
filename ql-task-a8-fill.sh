@@ -218,10 +218,22 @@ send_notification "$EXIT_CODE" "$SKIP_STATUS_TEXT"
 # 若青龙任务仍不停止但能看到下面这行，说明是退出后有子进程/孤儿残留（而非脚本本身卡住）。
 log_info "ql-task-a8-fill 全部步骤完成，退出码 ${EXIT_CODE}"
 if command -v ps >/dev/null 2>&1; then
-	log_info "残留进程检查（若出现非预期的 node/python 即为阻止任务结束的孤儿）:"
-	ps -ef 2>/dev/null | grep -E 'node |python|ql-task' | grep -v grep | while IFS= read -r _line; do
-		log_cmd_output "  $_line"
-	done || true
+	# 只检查由本任务产生的 node/python 子进程；过滤两类必然存在的误报：
+	#   1. ql-task-a8-fill.sh 自身的 bash 进程（脚本在 ps 时还活着，不是孤儿）
+	#   2. /ql/static/build/app.js（青龙面板 web 服务，容器启动后常驻）
+	# 若真有本任务的 node/python 孤儿，仍会被列出。
+	orphan_lines="$(ps -ef 2>/dev/null \
+		| grep -E 'node |python' \
+		| grep -v grep \
+		| grep -v '/ql/static/' || true)"
+	if [ -n "$orphan_lines" ]; then
+		log_info "发现疑似残留进程（非青龙服务、非本脚本）:"
+		printf '%s\n' "$orphan_lines" | while IFS= read -r _line; do
+			[ -n "$_line" ] && log_cmd_output "  $_line"
+		done
+	else
+		log_info "未发现异常残留进程"
+	fi
 fi
 
 exit "$EXIT_CODE"
