@@ -11,6 +11,7 @@ const {
   A8_WORK_HEADLESS,
   A8_WORK_SLOWMO,
   A8_WORK_PYTHON,
+  A8_FILL_ATTEMPTS,
 } = require('../config');
 const { fillWorkHoursForAccount } = require('../service/a8-fill-service');
 const { getServerChanConfig, sendServerChanNotify } = require('../send-serverchan');
@@ -207,6 +208,7 @@ async function main() {
     headless: A8_WORK_HEADLESS,
     slowMo: A8_WORK_SLOWMO,
     pythonCmd: A8_WORK_PYTHON,
+    attempts: A8_FILL_ATTEMPTS,
     date,
   };
 

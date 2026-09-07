@@ -34,6 +34,9 @@ const A8_WORK_HEADLESS = process.env.A8_WORK_HEADLESS !== 'false';
 const A8_WORK_SLOWMO = Number(process.env.A8_WORK_SLOWMO || '300');
 // Python 解释器命令，用于运行 Playwright 自动化脚本（Windows 可能是 python/py，Linux/青龙为 python3）
 const A8_WORK_PYTHON = process.env.A8_WORK_PYTHON || 'python3';
+// 单账号最多尝试次数（含首次）。A8 服务端延迟波动会使「发送前」阶段（登录/导航/历史记录加载）
+// 偶发失败，重跑一次即可成功；已点击发送的绝不重试以防重复提交。默认 2 次。
+const A8_FILL_ATTEMPTS = Number(process.env.A8_FILL_ATTEMPTS || '2');
 
 // 邮件配置
 const EMAIL_CONFIG = {
@@ -81,6 +84,7 @@ module.exports = {
   A8_WORK_HEADLESS,
   A8_WORK_SLOWMO,
   A8_WORK_PYTHON,
+  A8_FILL_ATTEMPTS,
   EMAIL_CONFIG,
   EMAIL_RECIPIENT,
 };

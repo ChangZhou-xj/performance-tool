@@ -181,11 +181,14 @@ def fill_work_hours(params):
                     form_page.wait_for_selector(
                         '#dataRelation_body ul.dr_item > li.list_li',
                         state='visible',
-                        timeout=30000,
+                        # A8 服务端延迟波动：历史记录由异步 XHR 填充，服务端慢时 30s 可能不够
+                        #（2026-09-07 实测等满 30s 容器仍停在初始空态）。放宽到 45s，
+                        # 配合 Node 层「发送前失败」有界重试，把间歇性慢转化为最终成功。
+                        timeout=45000,
                     )
                 except Exception:
-                    # 等待超时：要么真无历史记录，要么选择器与现网 DOM 不符
-                    #（记录可能渲染成别的结构）。交给下方 evaluate 收集证据并报错/截图。
+                    # 等待超时：要么真无历史记录，要么服务端仍未加载完，要么选择器与现网 DOM 不符。
+                    # 交给下方 evaluate 收集证据（含 outerHTML）并报错/截图。
                     pass
                 copy_result = form_page.evaluate('''() => {
                     const result = { success: false, message: '' };
@@ -196,14 +199,19 @@ def fill_work_hours(params):
                     }
                     const firstLi = dataRelationBody.querySelector('ul.dr_item > li.list_li');
                     if (!firstLi) {
-                        // 诊断：dump「我发起的数据」区实际结构，区分「真无记录」与「选择器不匹配」
+                        // 诊断：dump「我发起的数据」区实际结构，区分「真无记录」「服务端未加载完」
+                        // 与「选择器不匹配/记录在嵌套 iframe 内」。outerHTML 直接给出地面真相，
+                        // 避免再靠计数猜测。
                         const ul = dataRelationBody.querySelector('ul.dr_item');
                         const liCount = ul ? ul.querySelectorAll(':scope > li').length : 0;
                         const htmlLen = (dataRelationBody.innerHTML || '').length;
                         const allLi = dataRelationBody.querySelectorAll('li').length;
-                        const txt = ((dataRelationBody.innerText || '').replace(/\s+/g, ' ')).slice(0, 120);
+                        const iframes = dataRelationBody.querySelectorAll('iframe').length;
+                        const outer = ((dataRelationBody.outerHTML || '').replace(/\\s+/g, ' ')).slice(0, 300);
+                        const txt = ((dataRelationBody.innerText || '').replace(/\\s+/g, ' ')).slice(0, 120);
                         result.message = '未找到历史记录(ul=' + !!ul + ', dr_item_li=' + liCount
-                            + ', 全部li=' + allLi + ', htmlLen=' + htmlLen + ', 文本="' + txt + '")';
+                            + ', 全部li=' + allLi + ', iframe=' + iframes + ', htmlLen=' + htmlLen
+                            + ', 文本="' + txt + '", outerHTML="' + outer + '")';
                         return result;
                     }
                     const recordTitle = firstLi.getAttribute('title');
