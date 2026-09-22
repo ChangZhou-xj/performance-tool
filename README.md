@@ -22,7 +22,12 @@ npm install --registry=https://registry.npmmirror.com
 cp .env.example .env
 ```
 
-查看 [docId.png](docId.png) 和 [cookie.png](cookie.png) 图片教程，配置腾讯文档相关信息。
+
+# 2. 在 .env 中配置腾讯文档 MCP file_id 和 Token
+TENCENT_DOCS_ID=腾讯文档file_id
+TENCENT_DOCS_TOKEN=腾讯文档MCPToken
+
+# Token 获取地址：https://docs.qq.com/scenario/open-claw.html
 
 **必填配置项：**
 - `TENCENT_DOCS_ID`: 腾讯文档ID

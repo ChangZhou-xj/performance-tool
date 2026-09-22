@@ -5,8 +5,8 @@ const process = require('process');
 // tencentDocsId
 const TENCENT_DOCS_ID = process.env.TENCENT_DOCS_ID;
 
-// tencentDocsCookie
-const TENCENT_DOCS_COOKIE = process.env.TENCENT_DOCS_COOKIE;
+// tencentDocsMcpToken
+const TENCENT_DOCS_TOKEN = process.env.TENCENT_DOCS_TOKEN;
 
 // userName
 const USER_NAME = process.env.USER_NAME;
@@ -70,7 +70,7 @@ const CONTENT_TYPE = {
 
 module.exports = {
   TENCENT_DOCS_ID,
-  TENCENT_DOCS_COOKIE,
+  TENCENT_DOCS_TOKEN,
   CONTENT_TYPE,
   USER_NAME,
   MONTH,
