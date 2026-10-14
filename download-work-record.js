@@ -113,28 +113,51 @@ class DownloadWorkRecord {
    * @returns {Promise<string>}
    */
   static async getDownloadUrl(taskId) {
+    let consecutiveErrors = 0;
+    const maxConsecutiveErrors = 3;
+
     for (let retry = 0; retry < MAX_POLL_RETRIES; retry++) {
       if (retry > 0) {
         await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
       }
 
-      const result = await DownloadWorkRecord.callMcpApi(
-        'manage.export_progress',
-        { task_id: taskId },
-      );
-      const progress = Number(result.progress || 0);
-      console.info(`----> 腾讯文档导出进度：${progress}%`);
+      try {
+        const result = await DownloadWorkRecord.callMcpApi(
+          'manage.export_progress',
+          { task_id: taskId },
+        );
+        const progress = Number(result.progress || 0);
+        console.info(`----> 腾讯文档导出进度：${progress}%`);
 
-      if (result.error) {
-        throw new Error(`腾讯文档导出失败：${result.error}`);
-      }
+        // 重置连续错误计数
+        consecutiveErrors = 0;
 
-      if (progress >= 100) {
-        if (!result.file_url) {
-          throw new Error('腾讯文档导出完成，但未返回 file_url');
+        if (result.error) {
+          throw new Error(`腾讯文档导出失败：${result.error}`);
         }
-        console.info('----> 腾讯文档签名下载 URL 获取成功');
-        return result.file_url;
+
+        if (progress >= 100) {
+          if (!result.file_url) {
+            throw new Error('腾讯文档导出完成，但未返回 file_url');
+          }
+          console.info('----> 腾讯文档签名下载 URL 获取成功');
+          return result.file_url;
+        }
+      } catch (error) {
+        consecutiveErrors++;
+        console.warn(
+          `----> 腾讯文档导出进度查询失败（第 ${consecutiveErrors} 次）：${error.message}`,
+        );
+
+        // 如果是连续错误且超过阈值，抛出异常
+        if (consecutiveErrors >= maxConsecutiveErrors) {
+          throw new Error(
+            `腾讯文档导出服务连续 ${maxConsecutiveErrors} 次查询失败，最后错误：${error.message}`,
+          );
+        }
+
+        // 单次错误继续重试
+        console.info('----> 等待 3 秒后重试...');
       }
     }
 
