@@ -1,0 +1,14 @@
+#!/usr/bin/env sh
+# 冒充 npm 的桩：让 ql-task*.sh 的所有 npm 步骤立刻成功返回，不产生任何真实副作用
+#（不下载工作记录、不生成报告、不发邮件）。
+# 设置 STUB_NPM_FAIL=<需失败的关键字>，匹配到的调用会以退出码 3 失败，用于验证失败透传。
+echo "[stub npm] $*"
+if [ -n "${STUB_NPM_FAIL:-}" ]; then
+	case "$*" in
+	*"$STUB_NPM_FAIL"*)
+		echo "[stub npm] 模拟失败: $STUB_NPM_FAIL"
+		exit 3
+		;;
+	esac
+fi
+exit 0

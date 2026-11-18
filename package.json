@@ -22,6 +22,7 @@
     "capture:a8": "node -e \"const {captureA8Requests} = require('./service/a8-service'); const no = process.argv[1]; captureA8Requests(no).then(r => console.log(JSON.stringify(r, null, 2)))\" ",
     "test-holiday": "node test-holiday.js",
     "test": "mocha test/*.test.js",
+    "test:ql-task": "bash test/shell/ql-task-sourced/run.sh",
     "test:coverage": "nyc --reporter=text npm run test"
   },
   "keywords": [

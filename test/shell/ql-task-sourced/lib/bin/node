@@ -1,0 +1,4 @@
+#!/usr/bin/env sh
+# 冒充 node 的桩：Server酱通知不会真的发出网络请求
+echo "[stub node] $*"
+exit 0
