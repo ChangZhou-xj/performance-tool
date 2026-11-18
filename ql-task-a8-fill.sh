@@ -1,6 +1,20 @@
 #!/usr/bin/env sh
 set -u
 
+# 青龙（/ql/shell/otask.sh 的 main）对 .sh 任务是「source」方式执行的：
+#   which_program="."  ->  . task_performance-tool/ql-task-a8-fill.sh
+# 即本脚本实际跑在 task.sh 这个 shell 进程里。脚本末尾只要 `exit`，整个 task.sh
+# 会立刻终止，它最后两步 run_task_after / handle_task_end 就永远执行不到——而
+# handle_task_end 才负责把「完成 + 耗时」上报面板（/open/crons/status，status=1）
+# 并把本次运行实例标记为结束。表现为：任务 20 多秒就跑完了，面板却一直显示
+# 「运行中」，且每天多一条永不结束的运行实例（37 天 = 37 条）。
+# 所以先判断是否被 source：被 source 时结尾用 return 交还控制权。
+if ( return 0 2>/dev/null ); then
+	QL_TASK_SOURCED=1
+else
+	QL_TASK_SOURCED=0
+fi
+
 ORIGINAL_PWD="$(pwd)"
 SCRIPT_PATH="$0"
 
@@ -94,6 +108,10 @@ if ! is_project_dir "$PROJECT_ROOT"; then
 	echo "[ERROR] 未找到项目根目录，请设置环境变量 QL_TASK_PROJECT_DIR 指向仓库根目录" >&2
 	echo "[ERROR] 当前脚本路径: $SCRIPT_PATH" >&2
 	echo "[ERROR] 当前工作目录: $ORIGINAL_PWD" >&2
+	set +u
+	if [ "$QL_TASK_SOURCED" = "1" ]; then
+		return 1
+	fi
 	exit 1
 fi
 
@@ -236,4 +254,12 @@ if command -v ps >/dev/null 2>&1; then
 	fi
 fi
 
+# 被青龙 source 时必须 return，把控制权交还 task.sh，让它执行 handle_task_end
+# 上报「完成」；直接执行（sh ql-task-a8-fill.sh / npm 包装脚本）时仍用 exit 返回退出码。
+# 同时 set +u：脚本开头的 set -u 会残留在调用方 shell 里，令 task.sh 的收尾
+# 逻辑（share.sh handle_task_end / api.sh）因未定义变量报错，同样收不到完成状态。
+set +u
+if [ "$QL_TASK_SOURCED" = "1" ]; then
+	return "$EXIT_CODE"
+fi
 exit "$EXIT_CODE"
